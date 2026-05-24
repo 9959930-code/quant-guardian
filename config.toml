@@ -1,0 +1,53 @@
+[settings]
+data_source = "yahoo"
+cache_dir = "data/cache"
+output_dir = "output"
+base_currency = "USD"
+
+[etf_strategy]
+name = "ETF Core Momentum"
+risk_assets = ["SPY", "QQQ", "TLT", "GLD"]
+safety_asset = "SHY"
+lookback_months = 12
+start_date = "2007-01-01"
+
+[market_regime]
+growth_asset = "QQQ"
+market_asset = "SPY"
+safety_asset = "SHY"
+vix_symbol = "^VIX"
+risk_on_vix = 20
+
+[stock_strategy]
+name = "US Large Cap Quant Scanner"
+start_date = "2015-01-01"
+max_positions = 5
+min_score = 65
+max_single_stock_weight = 0.06
+rotation_top_n = 10
+rotation_start_date = "2016-01-01"
+
+[portfolio_profiles.aggressive]
+etf_weight = 0.70
+stock_weight = 0.30
+cash_weight = 0.00
+
+[portfolio_profiles.neutral]
+etf_weight = 0.80
+stock_weight = 0.10
+cash_weight = 0.10
+
+[portfolio_profiles.defensive]
+etf_weight = 0.45
+stock_weight = 0.00
+cash_weight = 0.55
+
+[universe]
+tickers = [
+  "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "AVGO", "TSLA", "COST", "NFLX",
+  "AMD", "ADBE", "CRM", "ORCL", "NOW", "PANW", "CRWD", "SNPS", "CDNS", "AMAT",
+  "LRCX", "KLAC", "MU", "QCOM", "INTC", "TXN", "ADI", "JPM", "V", "MA",
+  "UNH", "LLY", "ABBV", "MRK", "JNJ", "HD", "LOW", "WMT", "TGT", "TJX",
+  "NKE", "SBUX", "MCD", "KO", "PEP", "XOM", "CVX", "CAT", "DE", "GE",
+  "LIN", "SHW", "NEE", "CEG", "PLTR", "UBER", "SHOP", "ISRG", "BKNG", "MAR"
+]
