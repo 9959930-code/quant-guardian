@@ -26,6 +26,69 @@ DEFAULT_CONFIG = ROOT / "config.toml"
 USER_AGENT = "quant-guardian-v2/0.2 research-tool"
 KST = ZoneInfo("Asia/Seoul")
 
+SECTOR_MAP = {
+    "AAPL": "정보기술",
+    "MSFT": "정보기술",
+    "NVDA": "정보기술",
+    "AMZN": "경기소비재",
+    "GOOGL": "커뮤니케이션",
+    "META": "커뮤니케이션",
+    "AVGO": "정보기술",
+    "TSLA": "경기소비재",
+    "COST": "필수소비재",
+    "NFLX": "커뮤니케이션",
+    "AMD": "정보기술",
+    "ADBE": "정보기술",
+    "CRM": "정보기술",
+    "ORCL": "정보기술",
+    "NOW": "정보기술",
+    "PANW": "정보기술",
+    "CRWD": "정보기술",
+    "SNPS": "정보기술",
+    "CDNS": "정보기술",
+    "AMAT": "정보기술",
+    "LRCX": "정보기술",
+    "KLAC": "정보기술",
+    "MU": "정보기술",
+    "QCOM": "정보기술",
+    "INTC": "정보기술",
+    "TXN": "정보기술",
+    "ADI": "정보기술",
+    "JPM": "금융",
+    "V": "금융",
+    "MA": "금융",
+    "UNH": "헬스케어",
+    "LLY": "헬스케어",
+    "ABBV": "헬스케어",
+    "MRK": "헬스케어",
+    "JNJ": "헬스케어",
+    "HD": "경기소비재",
+    "LOW": "경기소비재",
+    "WMT": "필수소비재",
+    "TGT": "필수소비재",
+    "TJX": "경기소비재",
+    "NKE": "경기소비재",
+    "SBUX": "경기소비재",
+    "MCD": "경기소비재",
+    "KO": "필수소비재",
+    "PEP": "필수소비재",
+    "XOM": "에너지",
+    "CVX": "에너지",
+    "CAT": "산업재",
+    "DE": "산업재",
+    "GE": "산업재",
+    "LIN": "소재",
+    "SHW": "소재",
+    "NEE": "유틸리티",
+    "CEG": "유틸리티",
+    "PLTR": "정보기술",
+    "UBER": "산업재",
+    "SHOP": "정보기술",
+    "ISRG": "헬스케어",
+    "BKNG": "경기소비재",
+    "MAR": "경기소비재",
+}
+
 
 @dataclass(frozen=True)
 class Paths:
@@ -450,6 +513,7 @@ def stock_scores(cfg: dict, paths: Paths, refresh: bool = False) -> pd.DataFrame
     df = pd.DataFrame(rows)
     if not df.empty:
         df = df[df.get("error").isna() if "error" in df else [True] * len(df)]
+        df["sector"] = df["ticker"].map(SECTOR_MAP).fillna("기타")
         df = df.sort_values(["quant_score", "mom_12_1"], ascending=False)
     errors = pd.DataFrame({"error": close.attrs.get("errors", [])})
     errors.to_csv(paths.output / "data_errors.csv", index=False, encoding="utf-8-sig")
@@ -501,7 +565,7 @@ def portfolio_plan(cfg: dict, paths: Paths, refresh: bool = False) -> pd.DataFra
         cash_weight += stock_budget
 
     if cash_weight > 0:
-        rows.append({"asset": "CASH/SHY", "type": "현금/대기", "weight": cash_weight, "reason": "미사용 위험 예산"})
+        rows.append({"asset": "CASH/SGOV", "type": "현금/대기", "weight": cash_weight, "reason": "미사용 위험 예산"})
 
     plan = pd.DataFrame(rows)
     plan.to_csv(paths.output / "portfolio_plan.csv", index=False, encoding="utf-8-sig")
@@ -590,7 +654,7 @@ def full_report(cfg: dict, paths: Paths, refresh: bool = False) -> str:
     ]
     for _, row in scores.head(10).iterrows():
         lines.append(
-            f"- {row['ticker']}: {num(row['quant_score'])}점, {row['status']}, "
+            f"- {row['ticker']} ({row.get('sector', '기타')}): {num(row['quant_score'])}점, {row['status']}, "
             f"12-1 모멘텀 {pct(row['mom_12_1'])}, RSI {num(row['rsi14'])}, {row['reason']}"
         )
     lines.extend(["", "## 포트폴리오 제안"])
@@ -641,7 +705,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
     cfg = load_config(Path(args.config))
     paths = resolve_paths(cfg)
     df = stock_scores(cfg, paths, refresh=args.refresh)
-    cols = ["ticker", "quant_score", "status", "mom_12_1", "rsi14", "reason"]
+    cols = ["ticker", "sector", "quant_score", "status", "mom_12_1", "rsi14", "reason"]
     print(df[cols].head(args.limit).to_string(index=False))
     print(f"저장 위치: {paths.output / 'stock_scores.csv'}")
     return 0

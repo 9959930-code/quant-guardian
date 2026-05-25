@@ -64,6 +64,14 @@ ETF_GUIDE = [
         "note": "수익을 크게 노리는 자산이 아니라 변동성을 낮추는 역할입니다.",
     },
     {
+        "ticker": "SGOV",
+        "role": "초단기 현금 대기 대안",
+        "tracks": "미국 0-3개월 초단기 국채",
+        "what": "만기가 매우 짧은 미국 T-Bill에 투자하는 현금성 ETF입니다.",
+        "use": "매수 대기 현금이나 리스크를 낮춘 대기처를 찾을 때 봅니다.",
+        "note": "SHY보다 금리 변화에 덜 흔들립니다. 백테스트 신호는 긴 히스토리의 SHY를 유지하고, 실제 대기자금 후보로 SGOV를 같이 봅니다.",
+    },
+    {
         "ticker": "QQQM",
         "role": "QQQ 장기매수 대안",
         "tracks": "Nasdaq-100",
@@ -144,6 +152,22 @@ def build_etf_guide(cfg: dict, paths, refresh: bool) -> list[dict]:
     return rows
 
 
+def stock_chart_payload(scores: pd.DataFrame, cfg: dict, paths, limit: int = 25) -> dict[str, list[dict]]:
+    source = cfg["settings"].get("data_source", "yahoo")
+    charts = {}
+    for ticker in scores["ticker"].head(limit):
+        try:
+            price = read_price(ticker, paths, refresh=False, source=source)
+            close = price["Close"].dropna().tail(260)
+            charts[ticker] = [
+                {"date": idx.date().isoformat(), "value": round(float(value), 2)}
+                for idx, value in close.items()
+            ]
+        except Exception:
+            charts[ticker] = []
+    return charts
+
+
 def build_payload(refresh: bool = False) -> dict:
     cfg = load_config(DEFAULT_CONFIG)
     paths = resolve_paths(cfg)
@@ -185,6 +209,7 @@ def build_payload(refresh: bool = False) -> dict:
         "scores": records(scores, limit=50),
         "plan": records(plan),
         "etf_guide": build_etf_guide(cfg, paths, refresh=refresh),
+        "stock_charts": stock_chart_payload(scores, cfg, paths),
         "charts": {
             "etf_equity": curve_records(etf["signals"]["equity"]),
             "stock_rotation": curve_records((1 + rotation_returns["STOCK_ROTATION"].fillna(0)).cumprod()),
@@ -233,7 +258,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     .head p { margin:4px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
     .split { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; }
     .table-wrap { overflow:auto; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); }
-    table { width:100%; min-width:980px; border-collapse:collapse; }
+    table { width:100%; min-width:1060px; border-collapse:collapse; }
     th,td { padding:11px 12px; border-bottom:1px solid var(--line); text-align:left; font-size:13px; vertical-align:top; word-break:keep-all; }
     th { background:#f8fafc; color:var(--muted); font-size:12px; }
     tr:last-child td { border-bottom:0; }
@@ -252,6 +277,10 @@ HTML_TEMPLATE = r"""<!doctype html>
     .chart { width:100%; height:230px; display:block; overflow:visible; }
     .chart-legend { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; color:var(--muted); font-size:12px; }
     .legend-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; }
+    .stock-controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+    .stock-controls select { min-width:140px; border:1px solid var(--line); border-radius:8px; padding:9px 10px; background:#fff; font-weight:800; }
+    .period { border:1px solid var(--line); background:#fff; border-radius:8px; padding:8px 10px; font-weight:800; cursor:pointer; }
+    .period.active { background:var(--brand-soft); color:var(--brand); border-color:#bfdbfe; }
     .bar-list { display:grid; gap:9px; }
     .bar-row { display:grid; grid-template-columns:74px minmax(0,1fr) 54px; align-items:center; gap:10px; font-size:13px; }
     .bar-track { height:10px; background:#eef2f7; border-radius:999px; overflow:hidden; }
@@ -268,8 +297,8 @@ HTML_TEMPLATE = r"""<!doctype html>
     .etf-card p { margin:0; color:var(--muted); font-size:13px; line-height:1.55; }
     .tip { position:relative; display:inline-flex; align-items:center; gap:4px; cursor:help; border-bottom:1px dotted #94a3b8; white-space:nowrap; }
     .tip::after { content:"?"; display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; background:#eef2ff; color:var(--brand); font-size:11px; font-weight:900; }
-    .tip .bubble { display:none; position:absolute; left:0; top:calc(100% + 8px); z-index:10; width:min(320px,80vw); background:#172033; color:#fff; padding:10px 12px; border-radius:8px; box-shadow:var(--shadow); font-size:12px; line-height:1.45; font-weight:500; }
-    .tip:hover .bubble, .tip:focus .bubble { display:block; }
+    .global-tooltip { display:none; position:fixed; z-index:1000; max-width:min(560px, calc(100vw - 32px)); width:max-content; background:#172033; color:#fff; padding:10px 12px; border-radius:8px; box-shadow:var(--shadow); font-size:12px; line-height:1.5; font-weight:500; white-space:normal; overflow-wrap:anywhere; pointer-events:none; }
+    .global-tooltip.active { display:block; }
     .term-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
     .term { min-height:120px; }
     .term strong { display:block; margin-bottom:8px; }
@@ -288,7 +317,7 @@ HTML_TEMPLATE = r"""<!doctype html>
         <div class="sub" id="generatedAt"></div>
       </div>
       <div class="actions">
-        <span class="tip" tabindex="0">리포트 원문<span class="bubble">화면에 보이는 내용을 텍스트로 저장한 백업본입니다. CSV/HTML이 불편할 때 기록, 복사, 공유, 검산 용도로 씁니다. 평소에는 대시보드만 봐도 됩니다.</span></span>
+        <span class="tip" tabindex="0" data-tip="화면에 보이는 내용을 텍스트로 저장한 백업본입니다. CSV/HTML이 불편할 때 기록, 복사, 공유, 검산 용도로 씁니다. 평소에는 대시보드만 봐도 됩니다.">리포트 원문</span>
         <a class="button" href="report.md">열기</a>
       </div>
     </div>
@@ -337,6 +366,19 @@ HTML_TEMPLATE = r"""<!doctype html>
     </section>
     <section id="scanner" class="view">
       <div class="head"><div><h2>종목 스캐너</h2><p>점수는 후보를 줄이는 필터입니다. 점수가 높아도 뉴스, 실적, 밸류에이션 확인은 별도입니다.</p></div></div>
+      <div class="card chart-card">
+        <h3>종목 최근 차트</h3>
+        <p>상위 후보의 최근 가격 흐름을 1개월, 3개월, 6개월, 1년으로 나눠 봅니다.</p>
+        <div class="stock-controls">
+          <select id="stockSelect" aria-label="차트로 볼 종목 선택"></select>
+          <button class="period" data-days="21">1M</button>
+          <button class="period active" data-days="63">3M</button>
+          <button class="period" data-days="126">6M</button>
+          <button class="period" data-days="252">1Y</button>
+        </div>
+        <svg id="stockChart" class="chart" role="img" aria-label="종목 최근 차트"></svg>
+        <div class="hint" id="stockChartMeta"></div>
+      </div>
       <div class="table-wrap"><table id="scoreTable"></table></div>
     </section>
     <section id="portfolio" class="view">
@@ -344,8 +386,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="table-wrap"><table id="planTable"></table></div>
     </section>
     <section id="etfs" class="view">
-      <div class="head"><div><h2>ETF 코어 신호</h2><p>신호 계산에는 SPY, QQQ, TLT, GLD를 비교하고, 모두 약하면 SHY로 대기합니다.</p></div></div>
-      <div class="card explain">QQQ 신호는 “나스닥 100 성장주 묶음이 가장 강하다”는 뜻입니다. 실제 장기 매수는 QQQ 그대로 할 수도 있고, 단가와 비용을 낮추고 싶다면 QQQM을 대안으로 검토할 수 있습니다. SPYG는 QQQ와 동일 상품이 아니라 S&P 500 성장주 ETF라 별도 후보로 봐야 합니다.</div>
+      <div class="head"><div><h2>ETF 코어 신호</h2><p>신호 계산에는 SPY, QQQ, TLT, GLD를 비교하고, 모두 약하면 SHY로 대기합니다. 실제 현금성 대기 후보로는 SGOV도 함께 봅니다.</p></div></div>
+      <div class="card explain">QQQ 신호는 “나스닥 100 성장주 묶음이 가장 강하다”는 뜻입니다. 실제 장기 매수는 QQQ 그대로 할 수도 있고, 단가와 비용을 낮추고 싶다면 QQQM을 대안으로 검토할 수 있습니다. SPYG는 QQQ와 동일 상품이 아니라 S&P 500 성장주 ETF라 별도 후보로 봐야 합니다. SHY는 1-3년 단기국채라 가격 변동이 조금 있고, SGOV는 0-3개월 초단기 국채라 현금 대기에 더 가깝습니다.</div>
       <div id="etfCards" class="etf-cards"></div>
     </section>
     <section id="backtest" class="view">
@@ -367,6 +409,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="grid term-grid" id="termGrid"></div>
     </section>
   </main>
+  <div id="globalTooltip" class="global-tooltip"></div>
   <script>
     const DATA = __DATA__;
     const $ = id => document.getElementById(id);
@@ -402,12 +445,16 @@ HTML_TEMPLATE = r"""<!doctype html>
       ["MDD", HELP.mdd],
       ["Sharpe", HELP.rotSharpe],
       ["Sortino", HELP.sortino],
-      ["Calmar", HELP.calmar]
+      ["Calmar", HELP.calmar],
+      ["SHY와 SGOV", "SHY는 미국 1-3년 단기국채 ETF라 금리 변화에 어느 정도 흔들립니다. SGOV는 미국 0-3개월 초단기 국채 ETF라 현금 대기 성격이 더 강합니다. 그래서 백테스트 신호는 히스토리가 긴 SHY를 쓰고, 실제 대기자금 후보는 SGOV도 같이 봅니다."]
     ];
     const pct = v => v === null || v === undefined || Number.isNaN(Number(v)) ? "-" : `${Number(v).toFixed(2)}%`;
     const num = (v,d=2) => v === null || v === undefined || Number.isNaN(Number(v)) ? "-" : Number(v).toFixed(d);
     const volume = v => v === null || v === undefined || Number.isNaN(Number(v)) ? "-" : Number(v).toLocaleString("ko-KR");
-    const tip = (label, text) => `<span class="tip" tabindex="0">${label}<span class="bubble">${text}</span></span>`;
+    const escapeAttr = v => String(v ?? "").replace(/[&<>"']/g, ch => ({
+      "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;"
+    }[ch]));
+    const tip = (label, text) => `<span class="tip" tabindex="0" data-tip="${escapeAttr(text)}">${label}</span>`;
     const pill = v => {
       const cls = v === "매수후보" ? "good" : v === "과열주의" || v === "관찰" ? "warn" : v === "방어" ? "bad" : "";
       return `<span class="pill ${cls}">${v || "-"}</span>`;
@@ -422,7 +469,7 @@ HTML_TEMPLATE = r"""<!doctype html>
         return `<div class="bar-row"><strong>${row[labelKey]}</strong><div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div><span>${formatter(value)}</span></div>`;
       }).join("");
     }
-    function lineChart(el, seriesList) {
+    function lineChart(el, seriesList, labelFormatter = v => `${v.toFixed(1)}x`) {
       const width = 720, height = 230, pad = 28;
       const points = seriesList.flatMap(s => s.data.map((p, i) => ({ x:i, y:Number(p.value) })));
       if (!points.length) {
@@ -443,8 +490,8 @@ HTML_TEMPLATE = r"""<!doctype html>
       el.innerHTML = `
         <line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" stroke="#dfe5ef"></line>
         <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height-pad}" stroke="#dfe5ef"></line>
-        <text x="${pad}" y="18" fill="#687589" font-size="12">${maxY.toFixed(1)}x</text>
-        <text x="${pad}" y="${height-6}" fill="#687589" font-size="12">${minY.toFixed(1)}x</text>
+        <text x="${pad}" y="18" fill="#687589" font-size="12">${labelFormatter(maxY)}</text>
+        <text x="${pad}" y="${height-6}" fill="#687589" font-size="12">${labelFormatter(minY)}</text>
         ${lines}`;
     }
     function renderEtfCards(el, rows) {
@@ -460,6 +507,67 @@ HTML_TEMPLATE = r"""<!doctype html>
           <p><strong>언제 보는가:</strong> ${row.use}</p>
           <p><strong>메모:</strong> ${row.note}</p>
         </div>`).join("");
+    }
+    function showTooltip(target) {
+      const tooltip = $("globalTooltip");
+      const text = target.dataset.tip;
+      if (!tooltip || !text) return;
+      tooltip.textContent = text;
+      tooltip.classList.add("active");
+      const targetBox = target.getBoundingClientRect();
+      const tipBox = tooltip.getBoundingClientRect();
+      const margin = 12;
+      let left = targetBox.left;
+      let top = targetBox.bottom + 8;
+      if (left + tipBox.width > window.innerWidth - margin) left = window.innerWidth - tipBox.width - margin;
+      if (top + tipBox.height > window.innerHeight - margin) top = targetBox.top - tipBox.height - 8;
+      tooltip.style.left = `${Math.max(margin, left)}px`;
+      tooltip.style.top = `${Math.max(margin, top)}px`;
+    }
+    function hideTooltip() {
+      const tooltip = $("globalTooltip");
+      if (tooltip) tooltip.classList.remove("active");
+    }
+    document.addEventListener("mouseover", event => {
+      const target = event.target.closest(".tip");
+      if (target) showTooltip(target);
+    });
+    document.addEventListener("focusin", event => {
+      const target = event.target.closest(".tip");
+      if (target) showTooltip(target);
+    });
+    document.addEventListener("mouseout", event => {
+      if (event.target.closest(".tip")) hideTooltip();
+    });
+    document.addEventListener("focusout", event => {
+      if (event.target.closest(".tip")) hideTooltip();
+    });
+    window.addEventListener("scroll", hideTooltip, true);
+    let stockPeriod = 63;
+    function renderStockChart() {
+      const select = $("stockSelect");
+      const chart = $("stockChart");
+      if (!select || !chart) return;
+      const ticker = select.value;
+      const raw = (DATA.stock_charts && DATA.stock_charts[ticker]) || [];
+      const data = raw.slice(-stockPeriod);
+      lineChart(chart, [{name:ticker, color:"#2563eb", data}], v => `$${v.toFixed(2)}`);
+      const range = data.length ? `${data[0].date} - ${data[data.length - 1].date}` : "데이터 없음";
+      $("stockChartMeta").textContent = `${ticker} ${range}`;
+    }
+    function setupStockChart() {
+      const select = $("stockSelect");
+      if (!select) return;
+      const tickers = DATA.scores.slice(0, 25).map(row => row.ticker);
+      select.innerHTML = tickers.map(ticker => `<option value="${ticker}">${ticker}</option>`).join("");
+      select.addEventListener("change", renderStockChart);
+      document.querySelectorAll(".period").forEach(btn => btn.addEventListener("click", () => {
+        document.querySelectorAll(".period").forEach(item => item.classList.remove("active"));
+        btn.classList.add("active");
+        stockPeriod = Number(btn.dataset.days);
+        renderStockChart();
+      }));
+      renderStockChart();
     }
     $("labelRegime").innerHTML = tip("시장 모드", HELP.regime);
     $("labelSignal").innerHTML = tip("ETF 코어 신호", HELP.signal);
@@ -483,6 +591,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     $("regimeExplain").textContent = "4개 조건 중 많이 충족할수록 공격, 적게 충족할수록 방어입니다. 지금처럼 SPY/QQQ가 200일선 위이고 VIX가 낮으면 시장 위험을 비교적 감수할 수 있다고 봅니다.";
     const scoreCols = [
       {key:"ticker", label:"티커"},
+      {key:"sector", label:"업종"},
       {key:"quant_score", label:"총점", help:HELP.score, render:v=>num(v,1)},
       {key:"status", label:"상태", help:HELP.status, render:v=>pill(v)},
       {key:"mom_12_1", label:"12-1 모멘텀", help:HELP.mom, render:v=>pct(Number(v)*100)},
@@ -493,6 +602,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     ];
     table($("topScores"), scoreCols, DATA.scores.slice(0,8));
     table($("scoreTable"), scoreCols, DATA.scores);
+    setupStockChart();
     barList($("scoreBars"), DATA.scores.slice(0, 6), "quant_score", 100, "ticker", v => num(v, 1));
     table($("planTable"), [
       {key:"asset", label:"자산"},
