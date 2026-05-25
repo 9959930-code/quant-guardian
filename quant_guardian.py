@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import quote
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -70,9 +71,10 @@ def fetch_text(url: str, retries: int = 2, pause: float = 0.5) -> str:
 
 def fetch_yahoo_price(ticker: str) -> pd.DataFrame:
     symbol = yahoo_symbol(ticker)
+    url_symbol = quote(symbol, safe="")
     period2 = int((datetime.now(UTC) + timedelta(days=2)).timestamp())
     url = (
-        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{url_symbol}"
         f"?period1=0&period2={period2}&interval=1d&events=history&includeAdjustedClose=true"
     )
     payload = json.loads(fetch_text(url))
@@ -84,19 +86,19 @@ def fetch_yahoo_price(ticker: str) -> pd.DataFrame:
         raise RuntimeError(f"No Yahoo data for {ticker}")
     result = results[0]
     timestamps = result.get("timestamp") or []
-    quote = (result.get("indicators", {}).get("quote") or [{}])[0]
+    price_quote = (result.get("indicators", {}).get("quote") or [{}])[0]
     adj = (result.get("indicators", {}).get("adjclose") or [{}])[0].get("adjclose")
-    close = adj if adj else quote.get("close")
+    close = adj if adj else price_quote.get("close")
     if not timestamps or close is None:
         raise RuntimeError(f"Yahoo response missing prices for {ticker}")
     df = pd.DataFrame(
         {
             "Date": pd.to_datetime(timestamps, unit="s").tz_localize("UTC").tz_convert(None).date,
-            "Open": quote.get("open"),
-            "High": quote.get("high"),
-            "Low": quote.get("low"),
+            "Open": price_quote.get("open"),
+            "High": price_quote.get("high"),
+            "Low": price_quote.get("low"),
             "Close": close,
-            "Volume": quote.get("volume"),
+            "Volume": price_quote.get("volume"),
         }
     )
     df["Date"] = pd.to_datetime(df["Date"])
