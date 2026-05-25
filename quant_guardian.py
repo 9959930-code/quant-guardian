@@ -433,7 +433,7 @@ def score_stock(close: pd.Series, market_regime_name: str = "중립") -> dict:
 
 
 def stock_scores(cfg: dict, paths: Paths, refresh: bool = False) -> pd.DataFrame:
-    regime = market_regime(cfg, paths, refresh=False)
+    regime = market_regime(cfg, paths, refresh=refresh)
     tickers = [x.upper() for x in cfg["universe"]["tickers"]]
     close = price_panel(tickers, paths, refresh=refresh, source=cfg["settings"].get("data_source", "yahoo"))
     start = pd.Timestamp(cfg["stock_strategy"]["start_date"])
