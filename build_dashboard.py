@@ -96,6 +96,19 @@ def records(df: pd.DataFrame, limit: int | None = None) -> list[dict]:
     return [{k: clean_value(v) for k, v in row.items()} for row in df.to_dict(orient="records")]
 
 
+def curve_records(series: pd.Series, limit: int = 180) -> list[dict]:
+    series = series.dropna()
+    if series.empty:
+        return []
+    if len(series) > limit:
+        step = max(1, len(series) // limit)
+        series = series.iloc[::step]
+    return [
+        {"date": idx.date().isoformat(), "value": round(float(value), 4)}
+        for idx, value in series.items()
+    ]
+
+
 def pct(value):
     if value is None or pd.isna(value):
         return None
@@ -143,6 +156,7 @@ def build_payload(refresh: bool = False) -> dict:
     rotation = stock_rotation_backtest(cfg, paths, refresh=False)
     etf_metrics = etf["metrics"]["STRATEGY"]
     rotation_metrics = rotation["metrics"].get("STOCK_ROTATION", {})
+    rotation_returns = rotation["returns"]
 
     return {
         "generated_at": datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S KST"),
@@ -171,6 +185,12 @@ def build_payload(refresh: bool = False) -> dict:
         "scores": records(scores, limit=50),
         "plan": records(plan),
         "etf_guide": build_etf_guide(cfg, paths, refresh=refresh),
+        "charts": {
+            "etf_equity": curve_records(etf["signals"]["equity"]),
+            "stock_rotation": curve_records((1 + rotation_returns["STOCK_ROTATION"].fillna(0)).cumprod()),
+            "spy": curve_records((1 + rotation_returns["SPY"].fillna(0)).cumprod()) if "SPY" in rotation_returns else [],
+            "qqq": curve_records((1 + rotation_returns["QQQ"].fillna(0)).cumprod()) if "QQQ" in rotation_returns else [],
+        },
     }
 
 
@@ -213,8 +233,8 @@ HTML_TEMPLATE = r"""<!doctype html>
     .head p { margin:4px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
     .split { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; }
     .table-wrap { overflow:auto; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); }
-    table { width:100%; min-width:780px; border-collapse:collapse; }
-    th,td { padding:11px 12px; border-bottom:1px solid var(--line); text-align:left; font-size:13px; vertical-align:middle; }
+    table { width:100%; min-width:980px; border-collapse:collapse; }
+    th,td { padding:11px 12px; border-bottom:1px solid var(--line); text-align:left; font-size:13px; vertical-align:top; word-break:keep-all; }
     th { background:#f8fafc; color:var(--muted); font-size:12px; }
     tr:last-child td { border-bottom:0; }
     .pill { display:inline-flex; min-height:24px; align-items:center; padding:3px 8px; border-radius:999px; background:#f1f5f9; color:#334155; font-weight:900; font-size:12px; white-space:nowrap; }
@@ -226,10 +246,27 @@ HTML_TEMPLATE = r"""<!doctype html>
     .kv span:first-child { color:var(--muted); }
     .kv span:last-child { font-weight:900; }
     .explain { margin-top:10px; color:var(--muted); font-size:13px; line-height:1.55; }
-    .guide { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:14px; }
-    .guide .card h3 { margin:0 0 8px; font-size:15px; }
-    .guide .card p { margin:0; color:var(--muted); font-size:13px; line-height:1.55; }
-    .tip { position:relative; display:inline-flex; align-items:center; gap:4px; cursor:help; border-bottom:1px dotted #94a3b8; }
+    .chart-grid { grid-template-columns:repeat(2,minmax(0,1fr)); margin:14px 0; }
+    .chart-card h3 { margin:0 0 4px; font-size:15px; }
+    .chart-card p { margin:0 0 12px; color:var(--muted); font-size:13px; line-height:1.45; }
+    .chart { width:100%; height:230px; display:block; overflow:visible; }
+    .chart-legend { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; color:var(--muted); font-size:12px; }
+    .legend-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; }
+    .bar-list { display:grid; gap:9px; }
+    .bar-row { display:grid; grid-template-columns:74px minmax(0,1fr) 54px; align-items:center; gap:10px; font-size:13px; }
+    .bar-track { height:10px; background:#eef2f7; border-radius:999px; overflow:hidden; }
+    .bar-fill { height:100%; background:var(--brand); border-radius:999px; }
+    .etf-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:14px; }
+    .etf-card { display:grid; gap:10px; }
+    .etf-title { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+    .etf-title h3 { margin:0; font-size:18px; }
+    .etf-role { color:var(--brand); font-weight:900; font-size:13px; }
+    .etf-meta { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+    .mini { background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:8px; }
+    .mini span { display:block; color:var(--muted); font-size:11px; margin-bottom:4px; }
+    .mini strong { font-size:13px; }
+    .etf-card p { margin:0; color:var(--muted); font-size:13px; line-height:1.55; }
+    .tip { position:relative; display:inline-flex; align-items:center; gap:4px; cursor:help; border-bottom:1px dotted #94a3b8; white-space:nowrap; }
     .tip::after { content:"?"; display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; background:#eef2ff; color:var(--brand); font-size:11px; font-weight:900; }
     .tip .bubble { display:none; position:absolute; left:0; top:calc(100% + 8px); z-index:10; width:min(320px,80vw); background:#172033; color:#fff; padding:10px 12px; border-radius:8px; box-shadow:var(--shadow); font-size:12px; line-height:1.45; font-weight:500; }
     .tip:hover .bubble, .tip:focus .bubble { display:block; }
@@ -238,7 +275,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     .term strong { display:block; margin-bottom:8px; }
     .term p { margin:0; color:var(--muted); font-size:13px; line-height:1.55; }
     @media (max-width:900px) {
-      .summary,.split,.guide,.term-grid { grid-template-columns:1fr; }
+      .summary,.split,.chart-grid,.etf-cards,.term-grid { grid-template-columns:1fr; }
       .topbar { flex-direction:column; align-items:flex-start; }
     }
   </style>
@@ -265,6 +302,18 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="card"><div class="label" id="labelRotSharpe"></div><div class="value" id="rotSharpe"></div><div class="hint">상위 모멘텀 종목 월간 교체</div></div>
     </div>
     <div class="card explain" id="currentRead"></div>
+    <div class="grid chart-grid">
+      <div class="card chart-card">
+        <h3>상위 후보 점수</h3>
+        <p>현재 스캐너가 가장 좋게 보는 종목을 막대로 비교합니다.</p>
+        <div id="scoreBars" class="bar-list"></div>
+      </div>
+      <div class="card chart-card">
+        <h3>제안 비중</h3>
+        <p>ETF 코어와 개별주 위성 비중을 한눈에 봅니다.</p>
+        <div id="weightBars" class="bar-list"></div>
+      </div>
+    </div>
     <div class="tabs">
       <button class="tab active" data-view="overview">요약</button>
       <button class="tab" data-view="scanner">종목 스캐너</button>
@@ -297,10 +346,20 @@ HTML_TEMPLATE = r"""<!doctype html>
     <section id="etfs" class="view">
       <div class="head"><div><h2>ETF 코어 신호</h2><p>신호 계산에는 SPY, QQQ, TLT, GLD를 비교하고, 모두 약하면 SHY로 대기합니다.</p></div></div>
       <div class="card explain">QQQ 신호는 “나스닥 100 성장주 묶음이 가장 강하다”는 뜻입니다. 실제 장기 매수는 QQQ 그대로 할 수도 있고, 단가와 비용을 낮추고 싶다면 QQQM을 대안으로 검토할 수 있습니다. SPYG는 QQQ와 동일 상품이 아니라 S&P 500 성장주 ETF라 별도 후보로 봐야 합니다.</div>
-      <div class="table-wrap" style="margin-top:14px"><table id="etfTable"></table></div>
+      <div id="etfCards" class="etf-cards"></div>
     </section>
     <section id="backtest" class="view">
       <div class="head"><div><h2>백테스트</h2><p>과거에 이 규칙을 적용했을 때의 결과입니다. 미래 수익 보장이 아닙니다.</p></div></div>
+      <div class="card chart-card">
+        <h3>누적 수익 곡선</h3>
+        <p>1에서 시작해 시간이 지나며 자산이 얼마나 커졌는지 보는 그래프입니다. 곡선이 출렁이는 구간이 실제로 버텨야 하는 위험입니다.</p>
+        <svg id="equityChart" class="chart" role="img" aria-label="백테스트 누적 수익 곡선"></svg>
+        <div class="chart-legend">
+          <span><i class="legend-dot" style="background:#2563eb"></i>개별주 로테이션</span>
+          <span><i class="legend-dot" style="background:#059669"></i>SPY</span>
+          <span><i class="legend-dot" style="background:#b45309"></i>QQQ</span>
+        </div>
+      </div>
       <div class="grid summary" id="backtestCards"></div>
     </section>
     <section id="terms" class="view">
@@ -356,6 +415,52 @@ HTML_TEMPLATE = r"""<!doctype html>
     function table(el, cols, rows) {
       el.innerHTML = `<thead><tr>${cols.map(c=>`<th>${c.help ? tip(c.label, c.help) : c.label}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${c.render ? c.render(r[c.key], r) : (r[c.key] ?? "-")}</td>`).join("")}</tr>`).join("")}</tbody>`;
     }
+    function barList(el, rows, valueKey, maxValue, labelKey, formatter) {
+      el.innerHTML = rows.map(row => {
+        const value = Number(row[valueKey] ?? 0);
+        const width = Math.max(2, Math.min(100, maxValue ? value / maxValue * 100 : 0));
+        return `<div class="bar-row"><strong>${row[labelKey]}</strong><div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div><span>${formatter(value)}</span></div>`;
+      }).join("");
+    }
+    function lineChart(el, seriesList) {
+      const width = 720, height = 230, pad = 28;
+      const points = seriesList.flatMap(s => s.data.map((p, i) => ({ x:i, y:Number(p.value) })));
+      if (!points.length) {
+        el.innerHTML = `<text x="20" y="40" fill="#687589">표시할 그래프 데이터가 없습니다.</text>`;
+        return;
+      }
+      const maxLen = Math.max(...seriesList.map(s => s.data.length));
+      const minY = Math.min(...points.map(p => p.y));
+      const maxY = Math.max(...points.map(p => p.y));
+      const yRange = maxY - minY || 1;
+      const path = data => data.map((p, i) => {
+        const x = pad + (maxLen <= 1 ? 0 : i / (maxLen - 1) * (width - pad * 2));
+        const y = height - pad - ((Number(p.value) - minY) / yRange * (height - pad * 2));
+        return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(" ");
+      const lines = seriesList.map(s => `<path d="${path(s.data)}" fill="none" stroke="${s.color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>`).join("");
+      el.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      el.innerHTML = `
+        <line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" stroke="#dfe5ef"></line>
+        <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height-pad}" stroke="#dfe5ef"></line>
+        <text x="${pad}" y="18" fill="#687589" font-size="12">${maxY.toFixed(1)}x</text>
+        <text x="${pad}" y="${height-6}" fill="#687589" font-size="12">${minY.toFixed(1)}x</text>
+        ${lines}`;
+    }
+    function renderEtfCards(el, rows) {
+      el.innerHTML = rows.map(row => `
+        <div class="card etf-card">
+          <div class="etf-title"><h3>${row.ticker}</h3><span class="etf-role">${row.role}</span></div>
+          <div class="etf-meta">
+            <div class="mini"><span>추종/노출</span><strong>${row.tracks}</strong></div>
+            <div class="mini"><span>최근 종가</span><strong>${row.last === null ? "-" : "$" + num(row.last, 2)}</strong></div>
+            <div class="mini"><span>60일 평균 거래량</span><strong>${volume(row.avg_volume_60d)}</strong></div>
+          </div>
+          <p><strong>무엇인가:</strong> ${row.what}</p>
+          <p><strong>언제 보는가:</strong> ${row.use}</p>
+          <p><strong>메모:</strong> ${row.note}</p>
+        </div>`).join("");
+    }
     $("labelRegime").innerHTML = tip("시장 모드", HELP.regime);
     $("labelSignal").innerHTML = tip("ETF 코어 신호", HELP.signal);
     $("labelEtfCagr").innerHTML = tip("ETF CAGR", HELP.etfCagr);
@@ -388,22 +493,20 @@ HTML_TEMPLATE = r"""<!doctype html>
     ];
     table($("topScores"), scoreCols, DATA.scores.slice(0,8));
     table($("scoreTable"), scoreCols, DATA.scores);
+    barList($("scoreBars"), DATA.scores.slice(0, 6), "quant_score", 100, "ticker", v => num(v, 1));
     table($("planTable"), [
       {key:"asset", label:"자산"},
       {key:"type", label:"구분"},
       {key:"weight", label:"비중", render:v=>pct(Number(v)*100)},
       {key:"reason", label:"이유"}
     ], DATA.plan);
-    table($("etfTable"), [
-      {key:"ticker", label:"티커"},
-      {key:"role", label:"역할"},
-      {key:"tracks", label:"추종/노출"},
-      {key:"what", label:"무엇인가"},
-      {key:"use", label:"언제 보는가"},
-      {key:"last", label:"최근 종가", render:v=>v === null ? "-" : `$${num(v,2)}`},
-      {key:"avg_volume_60d", label:"60일 평균 거래량", render:v=>volume(v)},
-      {key:"note", label:"메모"}
-    ], DATA.etf_guide);
+    barList($("weightBars"), DATA.plan, "weight", 1, "asset", v => pct(v * 100));
+    renderEtfCards($("etfCards"), DATA.etf_guide);
+    lineChart($("equityChart"), [
+      {name:"개별주 로테이션", color:"#2563eb", data:DATA.charts.stock_rotation || []},
+      {name:"SPY", color:"#059669", data:DATA.charts.spy || []},
+      {name:"QQQ", color:"#b45309", data:DATA.charts.qqq || []}
+    ]);
     $("backtestCards").innerHTML = [
       [tip("ETF CAGR", HELP.etfCagr), pct(DATA.etf_metrics.cagr_pct)],
       [tip("ETF MDD", HELP.mdd), pct(DATA.etf_metrics.mdd_pct)],
