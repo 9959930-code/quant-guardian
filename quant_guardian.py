@@ -15,6 +15,7 @@ from typing import Iterable
 from urllib.parse import quote
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = ROOT / "config.toml"
 USER_AGENT = "quant-guardian-v2/0.2 research-tool"
+KST = ZoneInfo("Asia/Seoul")
 
 
 @dataclass(frozen=True)
@@ -562,7 +564,7 @@ def full_report(cfg: dict, paths: Paths, refresh: bool = False) -> str:
     lines = [
         "# 퀀트 가디언 v2 리포트",
         "",
-        f"생성 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"생성 시각: {datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S KST')}",
         "",
         "이 도구는 투자 후보를 찾고 리스크를 점검하는 연구용 사이트입니다. 자동 주문은 없습니다.",
         "",

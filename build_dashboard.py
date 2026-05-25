@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -60,7 +61,7 @@ def build_payload(refresh: bool = False) -> dict:
     rotation_metrics = rotation["metrics"].get("STOCK_ROTATION", {})
 
     return {
-        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "generated_at": datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S KST"),
         "regime": regime,
         "signal": {
             "as_of": signal["as_of"],
