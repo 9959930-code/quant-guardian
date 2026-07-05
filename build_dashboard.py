@@ -187,6 +187,10 @@ def build_daily_advice(regime: dict, signal: dict, scores: pd.DataFrame, plan: p
             "ticker": row["ticker"],
             "sector": row.get("sector", "기타"),
             "score": round(float(row["quant_score"]), 1),
+            "mom_12_1_pct": round(float(row["mom_12_1"]) * 100, 1),
+            "ret_6m_pct": round(float(row["ret_6m"]) * 100, 1),
+            "rsi14": round(float(row["rsi14"]), 1),
+            "reason": row.get("reason", ""),
         }
         for _, row in candidates.iterrows()
     ]
@@ -233,6 +237,8 @@ def build_daily_advice(regime: dict, signal: dict, scores: pd.DataFrame, plan: p
         "previous_signal": previous_signal,
         "current_signal": current_signal,
         "top_candidates": top_candidates,
+        "candidate_rule": "매수후보는 총점 75점 이상, RSI 72 이하, 현재가가 200일선 위인 종목입니다.",
+        "score_rule": "총점은 모멘텀 35, 추세 25, 리스크 20, 타이밍 10, 시장 모드 10을 합산합니다.",
         "steps": steps,
     }
 

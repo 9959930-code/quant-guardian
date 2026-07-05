@@ -28,28 +28,50 @@ def pct(value: float | int | None) -> str:
     return f"{float(value):.2f}%"
 
 
+def signed_pct(value: float | int | None) -> str:
+    if value is None:
+        return "-"
+    return f"{float(value):+.1f}%"
+
+
 def build_message(payload: dict, site_url: str) -> str:
     advice = payload.get("daily_advice", {})
     regime = payload.get("regime", {})
     signal = payload.get("signal", {})
     candidates = advice.get("top_candidates", [])[:5]
 
-    candidate_text = ", ".join(
-        f"{item['ticker']}({item.get('score', 0):.1f})" for item in candidates
-    ) or "신규 강한 후보 없음"
-    steps = "\n".join(f"- {step}" for step in advice.get("steps", [])[:3])
+    if candidates:
+        candidate_lines = [
+            (
+                f"{idx}. {item['ticker']} | {item.get('score', 0):.1f}점 | "
+                f"12-1M {signed_pct(item.get('mom_12_1_pct'))} | "
+                f"RSI {item.get('rsi14', '-')}"
+            )
+            for idx, item in enumerate(candidates, start=1)
+        ]
+    else:
+        candidate_lines = ["신규 강한 후보 없음"]
+    steps = "\n".join(f"- {step}" for step in advice.get("steps", [])[:2])
 
     return "\n".join(
         [
-            "퀀트 가디언 Daily",
+            "[퀀트 가디언 Daily]",
             "",
             f"오늘의 행동: {advice.get('action', '유지/관찰')}",
-            f"시장 모드: {regime.get('regime', '-')} ({regime.get('score', '-')}점)",
-            f"ETF 코어: {signal.get('current_signal', '-')}",
-            f"12개월 모멘텀: {pct(signal.get('latest_momentum_pct'))}",
-            f"상위 후보: {candidate_text}",
-            f"기준일: {signal.get('as_of', '-')}",
-            f"생성: {payload.get('generated_at', '-')}",
+            f"판단 이유: {advice.get('summary', '-')}",
+            "",
+            "[시장/ETF]",
+            f"- 기준일: {signal.get('as_of', '-')}",
+            f"- 시장 모드: {regime.get('regime', '-')} ({regime.get('score', '-')}점)",
+            f"- ETF 코어: {signal.get('current_signal', '-')}",
+            f"- ETF 12개월 모멘텀: {pct(signal.get('latest_momentum_pct'))}",
+            "",
+            "[상위 후보]",
+            *candidate_lines,
+            "",
+            "[후보 기준]",
+            f"- {advice.get('candidate_rule', '총점, 추세, RSI 조건을 통과한 종목입니다.')}",
+            f"- {advice.get('score_rule', '모멘텀, 추세, 리스크, 타이밍, 시장 모드를 합산합니다.')}",
             "",
             steps,
             "",
