@@ -186,6 +186,8 @@ def build_etf_guide(cfg: dict, paths, refresh: bool) -> list[dict]:
 
 
 def stock_chart_payload(scores: pd.DataFrame, cfg: dict, paths, limit: int = 25) -> dict[str, list[dict]]:
+    if scores.empty or "ticker" not in scores:
+        return {}
     source = cfg["settings"].get("data_source", "yahoo")
     charts = {}
     for ticker in scores["ticker"].head(limit):
