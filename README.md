@@ -35,6 +35,30 @@ GitHub Pages 주소를 모바일 브라우저로 연 뒤 홈 화면에 추가하
 
 일부 브라우저에서는 상단의 `앱 설치` 버튼이 보일 수 있습니다.
 
+## 텔레그램 알림 설정
+
+GitHub Secrets에 아래 두 값을 넣으면 매일 배포가 끝난 뒤 텔레그램으로 요약 알림을 보냅니다.
+
+```text
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+```
+
+설정 순서:
+
+1. 텔레그램에서 `BotFather`를 검색합니다.
+2. `/newbot`을 보냅니다.
+3. 봇 이름과 사용자 이름을 정합니다. 사용자 이름은 보통 `quant_guardian_bot`처럼 `bot`으로 끝나야 합니다.
+4. BotFather가 알려주는 봇 토큰을 복사합니다. 이 값이 `TELEGRAM_BOT_TOKEN`입니다.
+5. 새로 만든 봇과 대화를 열고 `/start`를 보냅니다.
+6. 브라우저에서 `https://api.telegram.org/bot<봇토큰>/getUpdates`를 엽니다.
+7. 응답의 `"chat":{"id":...}` 숫자를 복사합니다. 이 값이 `TELEGRAM_CHAT_ID`입니다.
+8. GitHub 저장소에서 `Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret`로 들어갑니다.
+9. `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`를 각각 추가합니다.
+10. `Actions` 탭에서 `Build and Deploy Quant Guardian` 워크플로를 수동 실행해 테스트합니다.
+
+봇 토큰은 비밀번호처럼 취급해야 합니다. README, 코드, 채팅창에 공개하지 말고 GitHub Secrets에만 넣습니다.
+
 ## 로컬에서 보기
 
 Windows 탐색기에서 아래 파일을 더블클릭합니다.
@@ -85,6 +109,7 @@ output/dashboard.html
 - `quant_guardian.py`: 퀀트 계산 엔진
 - `build_dashboard.py`: 웹 화면 생성기
 - `launch_dashboard.py`: 실행 파일
+- `telegram_notify.py`: 텔레그램 알림 발송기
 - `requirements.txt`: GitHub Actions와 로컬 실행에 필요한 Python 패키지
 
 ## 주의

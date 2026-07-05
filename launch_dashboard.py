@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 
-from build_dashboard import build_payload, HTML_TEMPLATE, write_static_assets
+from build_dashboard import build_payload, HTML_TEMPLATE, write_output_assets
 from quant_guardian import DEFAULT_CONFIG, load_config, resolve_paths
 import json
 
@@ -22,7 +22,7 @@ def main() -> int:
     html = HTML_TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False))
     out = paths.output / "dashboard.html"
     out.write_text(html, encoding="utf-8-sig")
-    write_static_assets(paths)
+    write_output_assets(paths, payload)
     print(f"생성 완료: {out}")
 
     if not args.no_open:

@@ -244,6 +244,26 @@ def write_static_assets(paths) -> None:
             shutil.copyfile(source, paths.output / asset)
 
 
+def write_daily_payload(paths, payload: dict) -> None:
+    daily = {
+        "generated_at": payload["generated_at"],
+        "daily_advice": payload["daily_advice"],
+        "regime": payload["regime"],
+        "signal": payload["signal"],
+        "top_scores": payload["scores"][:5],
+        "plan": payload["plan"],
+    }
+    (paths.output / "daily.json").write_text(
+        json.dumps(daily, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def write_output_assets(paths, payload: dict) -> None:
+    write_static_assets(paths)
+    write_daily_payload(paths, payload)
+
+
 def build_payload(refresh: bool = False) -> dict:
     cfg = load_config(DEFAULT_CONFIG)
     paths = resolve_paths(cfg)
@@ -783,7 +803,7 @@ def main() -> int:
     html = HTML_TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False))
     out = paths.output / "dashboard.html"
     out.write_text(html, encoding="utf-8-sig")
-    write_static_assets(paths)
+    write_output_assets(paths, payload)
     print(out.resolve())
     return 0
 
