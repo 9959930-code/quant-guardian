@@ -1,135 +1,110 @@
-# Quant Guardian v2
+# Quant Guardian QG-Core
 
-개인용 퀀트 투자 정보 대시보드입니다. 자동 주문 기능은 없고, 무료 가격 데이터로 시장 모드, ETF 신호, 개별주 후보, 포트폴리오 비중, 백테스트를 확인합니다.
+무료 가격 데이터로 매일 갱신되는 개인용 퀀트 투자 대시보드입니다. 자동주문은 하지 않습니다. 핵심 목적은 “지금 성장주 노출을 키울 때인지, 줄일 때인지”를 확인하고, SPY/QQQ 단순 보유와 비교하며 전략을 검증하는 것입니다.
 
-## 웹사이트 배포 구조
+## 핵심 전략
 
-이 저장소는 GitHub Pages 배포를 지원합니다.
+QG-Core는 세 단계로 판단합니다.
 
-- GitHub Actions가 미국장 거래일 다음날 07:30 KST에 자동 실행됩니다.
-- 무료 Yahoo 가격 데이터를 새로 받습니다.
-- `output/dashboard.html`을 생성합니다.
-- GitHub Pages에 `index.html`로 배포합니다.
-- `manifest.webmanifest`와 `service-worker.js`를 함께 배포해 모바일 홈 화면에 앱처럼 추가할 수 있습니다.
+1. 시장국면: SPY/QQQ 200일선, 6개월 수익률, VIX로 공격/중립/방어를 판정합니다.
+2. 성장 ETF 코어: QQQ, SPYG, XLK, SMH를 12-1개월/6개월/3개월 모멘텀과 추세로 비교합니다.
+3. 대형주 위성: 대형주 후보 중 상위 5개 내외만 전체 비중 25% 이하로 사용합니다.
 
-수동으로 갱신하고 싶으면 GitHub 저장소의 `Actions` 탭에서 `Build and Deploy Quant Guardian` 워크플로를 실행하면 됩니다.
+기본 비중은 다음과 같습니다.
 
-## 매일 추천 방식
+```text
+공격: 성장 ETF 60%, 대형주 위성 25%, SGOV 15%
+중립: 성장 ETF 35%, 대형주 위성 10%, SGOV/GLD/TLT 55%
+방어: SGOV 80%, GLD 10%, TLT 10%
+```
 
-퀀트 가디언은 실시간 호가 추천기가 아니라 미국장 마감 종가 기준 일일 판단 도구입니다.
+QQQ 신호가 나올 때 실제 장기 매수 후보로는 QQQM도 함께 봅니다. 백테스트는 긴 역사를 위해 QQQ와 SHY를 사용하고, 실제 대기자금 후보는 SGOV를 우선 표시합니다.
 
-- 기준 데이터: 미국장 마감 후 확정된 일봉 종가
-- 자동 갱신: 미국장 거래일 다음날 07:30 KST
-- 화면 표시: `오늘의 행동`, 시장 모드, ETF 코어 신호, 개별주 후보, 포트폴리오 비중
-- 장중 변동: 즉시 반영하지 않고 다음 자동 갱신 때 반영
+## 웹에서 보는 법
 
-이 방식은 초단타가 아니라 ETF 모멘텀, 시장 모드, 개별주 후보 점검처럼 일간/월간 신호에 맞춰져 있습니다.
-실시간 가격은 나중에 참고용 알림으로 붙일 수 있지만, 현재 버전은 장중 자동 매수/매도 판단을 하지 않습니다.
+GitHub Pages 주소:
 
-## 앱처럼 사용하기
+```text
+https://9959930-code.github.io/quant-guardian/
+```
 
-GitHub Pages 주소를 모바일 브라우저로 연 뒤 홈 화면에 추가하면 앱처럼 사용할 수 있습니다.
+상단의 `오늘의 행동`을 먼저 봅니다.
 
-- iPhone Safari: 공유 버튼 -> 홈 화면에 추가
-- Android Chrome/Edge: 메뉴 -> 앱 설치 또는 홈 화면에 추가
+- 성장 노출 유지 / 분할편입 검토: 공격 국면입니다.
+- 비중 조절 / 신규매수 신중: 중립 국면입니다.
+- 위험 축소 / 현금성 자산 우선: 방어 국면입니다.
 
-일부 브라우저에서는 상단의 `앱 설치` 버튼이 보일 수 있습니다.
+그 다음 순서로 보면 됩니다.
 
-## 텔레그램 알림 설정
+1. `시장 모드`: 지금 공격/중립/방어 중 어디인지 확인합니다.
+2. `ETF 1순위`: QG-Core가 가장 강하게 보는 성장 ETF 후보입니다.
+3. `QG-Core 비중`: ETF, 개별주, SGOV/GLD/TLT 비중 제안입니다.
+4. `종목 스캐너`: 개별주 후보를 점수순으로 봅니다.
+5. `백테스트`: QG-Core를 SPY, QQQ와 비교합니다.
 
-GitHub Secrets에 아래 두 값을 넣으면 매일 배포가 끝난 뒤 텔레그램으로 요약 알림을 보냅니다.
+## 로컬에서 실행
+
+캐시된 데이터로 빠르게 생성:
+
+```bash
+python launch_dashboard.py --no-open
+```
+
+최신 무료 가격 데이터를 다시 받은 뒤 생성:
+
+```bash
+python launch_dashboard.py --refresh --no-open
+```
+
+브라우저까지 열기:
+
+```bash
+python launch_dashboard.py --refresh
+```
+
+명령어로 확인:
+
+```bash
+python quant_guardian.py signal
+python quant_guardian.py portfolio
+python quant_guardian.py backtest
+python quant_guardian.py scan --limit 20
+```
+
+## GitHub Pages 자동 갱신
+
+`.github/workflows/deploy-pages.yml`이 미국장 거래일 다음 한국 오전에 자동 실행됩니다.
+
+작업 내용:
+
+1. Python 설치
+2. 무료 Yahoo 가격 데이터 갱신
+3. `output/dashboard.html` 생성
+4. GitHub Pages에 배포
+5. 텔레그램 시크릿이 있으면 요약 알림 발송
+
+수동 갱신은 GitHub 저장소의 `Actions` 탭에서 `Build and Deploy Quant Guardian` 워크플로를 실행하면 됩니다.
+
+## 텔레그램 알림
+
+GitHub Secrets에 아래 두 값을 넣으면 배포 후 알림이 전송됩니다.
 
 ```text
 TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID
 ```
 
-설정 순서:
-
-1. 텔레그램에서 `BotFather`를 검색합니다.
-2. `/newbot`을 보냅니다.
-3. 봇 이름과 사용자 이름을 정합니다. 사용자 이름은 보통 `quant_guardian_bot`처럼 `bot`으로 끝나야 합니다.
-4. BotFather가 알려주는 봇 토큰을 복사합니다. 이 값이 `TELEGRAM_BOT_TOKEN`입니다.
-5. 새로 만든 봇과 대화를 열고 `/start`를 보냅니다.
-6. 브라우저에서 `https://api.telegram.org/bot<봇토큰>/getUpdates`를 엽니다.
-7. 응답의 `"chat":{"id":...}` 숫자를 복사합니다. 이 값이 `TELEGRAM_CHAT_ID`입니다.
-8. GitHub 저장소에서 `Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret`로 들어갑니다.
-9. `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`를 각각 추가합니다.
-10. `Actions` 탭에서 `Build and Deploy Quant Guardian` 워크플로를 수동 실행해 테스트합니다.
-
-봇 토큰은 비밀번호처럼 취급해야 합니다. README, 코드, 채팅창에 공개하지 말고 GitHub Secrets에만 넣습니다.
-
-## 로컬에서 보기
-
-Windows 탐색기에서 아래 파일을 더블클릭합니다.
-
-```text
-open_gui.vbs
-```
-
-그러면 최신 가격 데이터를 받고, 다시 계산한 뒤 브라우저로 `output/dashboard.html`이 열립니다. 데이터 수신은 몇 분 걸릴 수 있습니다.
-
-이미 만들어진 화면만 빠르게 보고 싶으면 아래 파일을 직접 열면 됩니다.
-
-```text
-output/dashboard.html
-```
-
-## 화면 읽는 법
-
-상단 요약 카드 4개를 먼저 봅니다.
-
-- 오늘의 행동: 그날 기준으로 유지, 관찰, 분할 편입 검토, 리밸런싱 검토, 위험 축소 중 무엇을 우선 볼지 보여줍니다.
-- 시장 모드: 공격, 중립, 방어 중 현재 시장이 어디에 가까운지 보여줍니다.
-- ETF 코어 신호: 이번 달 핵심 ETF 후보입니다.
-- ETF CAGR: ETF 모멘텀 전략의 과거 연평균 수익률입니다.
-- 주식 로테이션 Sharpe: 개별주 후보 교체 전략의 위험 대비 성과입니다.
-
-탭은 이렇게 사용합니다.
-
-- 요약: 가장 중요한 후보와 시장 체크를 한 화면에서 봅니다.
-- 종목 스캐너: 미국 대형주 후보를 점수순으로 봅니다.
-- 포트폴리오 제안: ETF와 개별주를 어느 정도 비중으로 섞을지 봅니다.
-- 백테스트: ETF 전략과 개별주 로테이션의 과거 성과를 봅니다.
-
-## 후보 기준
-
-개별주 `매수후보`는 아래 조건을 통과한 종목입니다.
-
-- 총점 75점 이상
-- RSI 72 이하
-- 현재가가 200일선 위
-
-총점은 아래 항목을 합산합니다.
-
-- 모멘텀 35점: 12-1개월 모멘텀, 6개월 수익률, 3개월 수익률
-- 추세 25점: 50일선, 200일선, 50일선/200일선 관계
-- 리스크 20점: 최근 변동성, 1년 고점 대비 낙폭
-- 타이밍 10점: RSI가 과열/침체가 아닌지
-- 시장 모드 10점: 공격/중립/방어 상태
-
-ETF 코어 신호는 SPY, QQQ, TLT, GLD의 12개월 모멘텀을 비교해 가장 강한 ETF를 고릅니다. 모두 0% 이하이면 SHY를 선택합니다.
-
-## 실제 사용 순서
-
-1. 대시보드를 엽니다.
-2. 시장 모드가 공격, 중립, 방어 중 무엇인지 확인합니다.
-3. ETF 코어 신호를 확인합니다.
-4. 종목 스캐너에서 매수후보와 과열주의를 구분합니다.
-5. 포트폴리오 제안의 비중을 참고하되 실제 주문은 직접 판단합니다.
-6. 최소 몇 달은 실제 매수 없이 기록하며 결과를 확인합니다.
+알림에는 시장모드, ETF 1순위, QG-Core 비중, 상위 대형주 후보, SPY/QQQ 대비 백테스트 요약이 들어갑니다.
 
 ## 주요 파일
 
-- `open_gui.vbs`: 로컬 대시보드 실행 파일
+- `quant_guardian.py`: 전략 계산 엔진
+- `build_dashboard.py`: HTML 대시보드 생성
+- `launch_dashboard.py`: 로컬 실행 진입점
+- `telegram_notify.py`: 텔레그램 알림
+- `config.toml`: 전략 설정, ETF 후보, 비중 설정
 - `.github/workflows/deploy-pages.yml`: GitHub Pages 자동 배포
-- `config.toml`: ETF, 종목 목록, 비중 설정
-- `quant_guardian.py`: 퀀트 계산 엔진
-- `build_dashboard.py`: 웹 화면 생성기
-- `launch_dashboard.py`: 실행 파일
-- `telegram_notify.py`: 텔레그램 알림 발송기
-- `requirements.txt`: GitHub Actions와 로컬 실행에 필요한 Python 패키지
 
 ## 주의
 
-이 프로그램은 투자 추천기가 아니라 후보 발굴과 리스크 점검 도구입니다. 백테스트가 좋아 보여도 미래 수익을 보장하지 않습니다. 실제 매매 전에는 종목 뉴스, 실적, 환율, 세금, 수수료, 본인의 투자금 규모를 따로 확인해야 합니다.
+이 프로그램은 투자 추천기가 아니라 의사결정 보조 도구입니다. 백테스트가 좋아도 미래 수익을 보장하지 않습니다. 실제 매매 전에는 계좌 비중, 환율, 세금, 수수료, 실적 발표, 보유 종목 중복을 직접 확인해야 합니다.

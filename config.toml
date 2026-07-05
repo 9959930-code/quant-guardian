@@ -18,6 +18,44 @@ safety_asset = "SHY"
 vix_symbol = "^VIX"
 risk_on_vix = 20
 
+[qg_core]
+name = "QG-Core Aggressive Growth Momentum"
+offensive_etfs = ["QQQ", "SPYG", "XLK", "SMH"]
+backtest_offensive_etfs = ["QQQ", "SPYG", "XLK", "SMH"]
+live_safety_asset = "SGOV"
+backtest_safety_asset = "SHY"
+gold_asset = "GLD"
+bond_asset = "TLT"
+stock_max_positions = 5
+stock_min_score = 75
+max_single_stock_weight = 0.06
+sector_cap = 0.40
+backtest_start_date = "2016-01-01"
+
+[qg_core_execution_map]
+QQQ = "QQQM"
+
+[qg_core_allocations.aggressive]
+etf = 0.60
+stock = 0.25
+safety = 0.15
+gold = 0.00
+bond = 0.00
+
+[qg_core_allocations.neutral]
+etf = 0.35
+stock = 0.10
+safety = 0.35
+gold = 0.10
+bond = 0.10
+
+[qg_core_allocations.defensive]
+etf = 0.00
+stock = 0.00
+safety = 0.80
+gold = 0.10
+bond = 0.10
+
 [stock_strategy]
 name = "US Large Cap Quant Scanner"
 start_date = "2015-01-01"

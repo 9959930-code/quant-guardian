@@ -11,15 +11,15 @@ import pandas as pd
 
 from quant_guardian import (
     DEFAULT_CONFIG,
-    etf_backtest,
+    execution_ticker,
     full_report,
-    latest_etf_signal,
     load_config,
     market_regime,
-    portfolio_plan,
+    qg_core_backtest,
+    qg_core_etf_scores,
+    qg_core_portfolio_plan,
     read_price,
     resolve_paths,
-    stock_rotation_backtest,
     stock_scores,
 )
 
@@ -31,67 +31,83 @@ STATIC_ASSETS = ["manifest.webmanifest", "service-worker.js", "icon.svg"]
 ETF_GUIDE = [
     {
         "ticker": "SPY",
-        "role": "미국 대형주 기준",
+        "role": "미국 대형주 기준선",
         "tracks": "S&P 500",
         "what": "미국 대표 대형주 약 500개에 분산 투자하는 ETF입니다.",
-        "use": "미국 주식시장 전체 분위기를 볼 때 씁니다.",
-        "note": "장기투자는 VOO, IVV, SPLG 같은 저비용 대안도 비교할 수 있습니다.",
+        "use": "QG-Core가 SPY보다 의미 있는지 비교하는 기본 벤치마크입니다.",
+        "note": "장기 핵심 자산으로는 VOO, IVV, SPLG 같은 저비용 대안도 비교할 수 있습니다.",
     },
     {
         "ticker": "QQQ",
-        "role": "성장주 코어 신호",
+        "role": "나스닥100 신호 기준",
         "tracks": "Nasdaq-100",
-        "what": "나스닥에 상장된 대형 비금융 성장주 100개를 추종합니다.",
-        "use": "기술주와 성장주가 강한 장세인지 판단할 때 씁니다.",
-        "note": "가격이 부담되면 장기 매수용으로 QQQM을 같이 검토합니다.",
-    },
-    {
-        "ticker": "TLT",
-        "role": "장기채 방어/금리 민감 자산",
-        "tracks": "미국 20년 이상 장기 국채",
-        "what": "미국 장기 국채에 투자합니다. 금리 변화에 민감합니다.",
-        "use": "주식이 약하고 장기채 모멘텀이 강할 때 후보가 됩니다.",
-        "note": "금리가 오르면 가격이 크게 흔들릴 수 있습니다.",
-    },
-    {
-        "ticker": "GLD",
-        "role": "금/대체자산",
-        "tracks": "금 현물 가격",
-        "what": "금 가격 움직임에 노출되는 대표 ETF입니다.",
-        "use": "주식과 채권이 모두 불안할 때 대체자산 후보로 봅니다.",
-        "note": "장기 비용을 중시하면 GLDM 같은 저비용 금 ETF도 비교할 수 있습니다.",
-    },
-    {
-        "ticker": "SHY",
-        "role": "안전자산 대기처",
-        "tracks": "미국 1-3년 단기 국채",
-        "what": "짧은 만기의 미국 국채에 투자합니다.",
-        "use": "위험자산 모멘텀이 모두 약할 때 피난처로 씁니다.",
-        "note": "수익을 크게 노리는 자산이 아니라 변동성을 낮추는 역할입니다.",
-    },
-    {
-        "ticker": "SGOV",
-        "role": "초단기 현금 대기 대안",
-        "tracks": "미국 0-3개월 초단기 국채",
-        "what": "만기가 매우 짧은 미국 T-Bill에 투자하는 현금성 ETF입니다.",
-        "use": "매수 대기 현금이나 리스크를 낮춘 대기처를 찾을 때 봅니다.",
-        "note": "SHY보다 금리 변화에 덜 흔들립니다. 백테스트 신호는 긴 히스토리의 SHY를 유지하고, 실제 대기자금 후보로 SGOV를 같이 봅니다.",
+        "what": "나스닥 상장 대형 비금융 100개 기업을 추종합니다.",
+        "use": "성장주와 기술주 베타가 강한지 판단하는 핵심 기준입니다.",
+        "note": "장기 매수 후보로는 비용이 낮은 QQQM을 함께 봅니다.",
     },
     {
         "ticker": "QQQM",
         "role": "QQQ 장기매수 대안",
         "tracks": "Nasdaq-100",
-        "what": "QQQ와 같은 Nasdaq-100 지수를 추종하는 Invesco ETF입니다.",
-        "use": "QQQ 신호가 나왔을 때 실제 장기 매수 대안으로 검토할 수 있습니다.",
-        "note": "QQQ보다 역사가 짧아 백테스트 신호는 QQQ를 쓰고, 실행 후보로 QQQM을 봅니다.",
+        "what": "QQQ와 같은 나스닥100 지수를 추종하는 Invesco ETF입니다.",
+        "use": "QG-Core에서 QQQ 신호가 나올 때 실제 장기 매수 대안으로 검토합니다.",
+        "note": "QQQ보다 거래량은 작지만 장기 보유 관점에서는 비용과 주당 가격이 유리할 수 있습니다.",
     },
     {
         "ticker": "SPYG",
-        "role": "성장주 ETF 참고",
-        "tracks": "S&P 500 Growth Index",
-        "what": "S&P 500 안의 성장주 성향 종목을 담는 ETF입니다.",
-        "use": "미국 성장주 노출을 원할 때 참고할 수 있습니다.",
-        "note": "QQQ와 동일한 ETF는 아닙니다. Nasdaq-100과 구성 방식이 다릅니다.",
+        "role": "S&P500 성장주",
+        "tracks": "S&P 500 Growth",
+        "what": "S&P500 안에서 성장 성향이 강한 종목을 담습니다.",
+        "use": "나스닥100에만 쏠리지 않는 성장주 노출로 비교합니다.",
+        "note": "QQQ와 완전히 같은 상품이 아닙니다. 구성 방식과 업종 비중이 다릅니다.",
+    },
+    {
+        "ticker": "XLK",
+        "role": "기술 섹터",
+        "tracks": "Technology Select Sector",
+        "what": "S&P500의 기술 섹터에 집중 투자합니다.",
+        "use": "기술주 주도장이 강할 때 QQQ와 함께 비교합니다.",
+        "note": "소수 대형 기술주 비중이 높을 수 있어 집중 리스크가 있습니다.",
+    },
+    {
+        "ticker": "SMH",
+        "role": "반도체",
+        "tracks": "Semiconductor",
+        "what": "글로벌 반도체 기업에 집중 투자하는 ETF입니다.",
+        "use": "AI/반도체 주도장이 이어지는지 확인하는 공격형 후보입니다.",
+        "note": "변동성이 매우 클 수 있어 QG-Core에서는 코어 전체가 아니라 후보 중 하나로만 봅니다.",
+    },
+    {
+        "ticker": "SGOV",
+        "role": "초단기 국채 대기자금",
+        "tracks": "0-3개월 미국 T-Bill",
+        "what": "만기가 매우 짧은 미국 국채 ETF로 현금 대기처에 가깝습니다.",
+        "use": "방어/중립 국면에서 위험자산 비중을 줄일 때 사용합니다.",
+        "note": "SHY보다 금리 변동에 덜 민감한 편이라 실제 대기자금 후보로 둡니다.",
+    },
+    {
+        "ticker": "SHY",
+        "role": "백테스트용 단기채",
+        "tracks": "1-3년 미국 국채",
+        "what": "짧은 만기의 미국 국채에 투자합니다.",
+        "use": "SGOV의 역사가 짧아 장기 백테스트에서는 SHY를 방어자산 프록시로 씁니다.",
+        "note": "SGOV보다 금리 변화에 더 흔들릴 수 있습니다.",
+    },
+    {
+        "ticker": "GLD",
+        "role": "금 대체자산",
+        "tracks": "금 가격",
+        "what": "금 가격 흐름에 노출되는 ETF입니다.",
+        "use": "주식과 채권이 함께 불안할 때 일부 분산 역할을 기대합니다.",
+        "note": "수익을 만드는 엔진이라기보다 위기 분산 후보입니다.",
+    },
+    {
+        "ticker": "TLT",
+        "role": "장기채 방어자산",
+        "tracks": "20년 이상 미국 국채",
+        "what": "미국 장기 국채에 투자합니다.",
+        "use": "금리 하락기나 경기 둔화 국면의 방어 보조 후보입니다.",
+        "note": "금리가 오르면 가격이 크게 흔들릴 수 있습니다.",
     },
 ]
 
@@ -104,23 +120,37 @@ def clean_value(value):
     return value
 
 
+def json_ready(value):
+    if isinstance(value, dict):
+        return {k: json_ready(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [json_ready(v) for v in value]
+    if isinstance(value, tuple):
+        return [json_ready(v) for v in value]
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(value, "item"):
+        return value.item()
+    return value
+
+
 def records(df: pd.DataFrame, limit: int | None = None) -> list[dict]:
     if limit:
         df = df.head(limit)
     return [{k: clean_value(v) for k, v in row.items()} for row in df.to_dict(orient="records")]
 
 
-def curve_records(series: pd.Series, limit: int = 180) -> list[dict]:
+def curve_records(series: pd.Series, limit: int = 220) -> list[dict]:
     series = series.dropna()
     if series.empty:
         return []
     if len(series) > limit:
         step = max(1, len(series) // limit)
         series = series.iloc[::step]
-    return [
-        {"date": idx.date().isoformat(), "value": round(float(value), 4)}
-        for idx, value in series.items()
-    ]
+    return [{"date": idx.date().isoformat(), "value": round(float(value), 4)} for idx, value in series.items()]
 
 
 def pct(value):
@@ -129,10 +159,10 @@ def pct(value):
     return round(float(value) * 100, 2)
 
 
-def num(value):
+def num(value, digits: int = 4):
     if value is None or pd.isna(value):
         return None
-    return round(float(value), 4)
+    return round(float(value), digits)
 
 
 def build_etf_guide(cfg: dict, paths, refresh: bool) -> list[dict]:
@@ -143,10 +173,7 @@ def build_etf_guide(cfg: dict, paths, refresh: bool) -> list[dict]:
         try:
             price = read_price(item["ticker"], paths, refresh=refresh, source=source)
             row["last"] = round(float(price["Close"].dropna().iloc[-1]), 2)
-            if "Volume" in price:
-                row["avg_volume_60d"] = int(price["Volume"].dropna().tail(60).mean())
-            else:
-                row["avg_volume_60d"] = None
+            row["avg_volume_60d"] = int(price["Volume"].dropna().tail(60).mean()) if "Volume" in price else None
             row["as_of"] = price.index[-1].date().isoformat()
             row["data_error"] = None
         except Exception as exc:
@@ -174,13 +201,10 @@ def stock_chart_payload(scores: pd.DataFrame, cfg: dict, paths, limit: int = 25)
     return charts
 
 
-def build_daily_advice(regime: dict, signal: dict, scores: pd.DataFrame, plan: pd.DataFrame, etf: dict) -> dict:
-    signals = etf["signals"].dropna(subset=["signal"])
-    current_signal = signal["current_signal"]
-    previous_signal = None
-    if len(signals) >= 2:
-        previous_signal = str(signals["signal"].iloc[-2])
-
+def build_daily_advice(regime: dict, etfs: pd.DataFrame, scores: pd.DataFrame, plan: pd.DataFrame, cfg: dict) -> dict:
+    top_etf = etfs.iloc[0].to_dict() if not etfs.empty else {}
+    top_signal = str(top_etf.get("ticker", "-"))
+    top_exec = execution_ticker(cfg, top_signal) if top_signal != "-" else "-"
     candidates = scores[scores["status"] == "매수후보"].head(5) if not scores.empty else pd.DataFrame()
     top_candidates = [
         {
@@ -194,52 +218,37 @@ def build_daily_advice(regime: dict, signal: dict, scores: pd.DataFrame, plan: p
         }
         for _, row in candidates.iterrows()
     ]
-    cash_rows = plan[plan["type"] == "현금/대기"] if not plan.empty else pd.DataFrame()
-    cash_weight = float(cash_rows["weight"].sum()) if not cash_rows.empty else 0.0
-
-    if regime["regime"] == "방어":
-        action = "위험 축소"
-        tone = "bad"
-        summary = "방어 모드입니다. 신규 개별주 편입보다 현금성 대기와 손실 제한을 먼저 봅니다."
-    elif previous_signal and current_signal != previous_signal:
-        action = "ETF 리밸런싱 검토"
-        tone = "warn"
-        summary = f"ETF 코어 신호가 {previous_signal}에서 {current_signal}로 바뀌었습니다. 월간 리밸런싱 대상인지 확인합니다."
-    elif len(top_candidates) >= 3 and regime["regime"] == "공격":
-        action = "분할 편입 검토"
+    if regime["regime"] == "공격":
+        action = "성장 노출 유지 / 분할편입 검토"
         tone = "good"
-        summary = "공격 모드이고 매수후보가 충분합니다. 한 번에 사기보다 후보를 나눠 검토합니다."
-    elif len(top_candidates) > 0:
-        action = "관찰 후 소액 검토"
+        summary = f"공격 국면입니다. 성장 ETF 1순위는 {top_exec}이며, 개별주는 상위 후보만 소량으로 얹는 구조가 맞습니다."
+    elif regime["regime"] == "중립":
+        action = "비중 조절 / 신규매수 신중"
         tone = "warn"
-        summary = "후보는 있지만 시장 모드가 강하지 않습니다. 기존 보유를 우선 확인하고 소액만 검토합니다."
+        summary = f"중립 국면입니다. {top_exec} 신호가 있더라도 전체 위험자산 비중은 낮추고 SGOV/GLD/TLT 비중을 함께 봅니다."
     else:
-        action = "유지/관찰"
-        tone = ""
-        summary = "강한 신규 후보가 부족합니다. 기존 포트폴리오를 유지하고 다음 갱신을 기다립니다."
-
+        action = "위험 축소 / 현금성 자산 우선"
+        tone = "bad"
+        summary = "방어 국면입니다. 신규 성장주 매수보다 SGOV 중심의 대기자금과 손실 방어가 우선입니다."
     steps = [
-        f"데이터 기준일 {signal['as_of']}의 미국장 마감 종가로 계산했습니다.",
-        "장중 실시간 가격은 반영하지 않고 다음 자동 갱신 때 반영합니다.",
-        "실제 주문 전에는 보유 비중, 환율, 수수료, 실적 발표 일정을 별도로 확인합니다.",
+        f"기준일 {regime.get('as_of', '-')} 미국장 마감 데이터로 계산했습니다.",
+        "매일 신호는 확인하되 실제 매매 판단은 주 1회 또는 월 1회로 제한합니다.",
+        "QG-Core가 SPY/QQQ 단순보유보다 나은지 백테스트와 실전 기록으로 계속 비교합니다.",
     ]
-    if cash_weight >= 0.20:
-        steps.append(f"현재 제안에는 현금/SGOV 대기 비중이 {cash_weight * 100:.0f}% 있습니다.")
-    if top_candidates:
-        steps.append("개별주는 상위 후보를 바로 매수하는 뜻이 아니라 검토 목록으로 봅니다.")
-
     return {
         "action": action,
         "tone": tone,
         "summary": summary,
-        "data_mode": "장 마감 종가 기준",
-        "refresh_rule": "미국장 거래일 다음날 07:30 KST 자동 갱신",
-        "previous_signal": previous_signal,
-        "current_signal": current_signal,
+        "data_mode": "미국장 마감 종가 기준",
+        "refresh_rule": "미국장 거래일 다음 한국 오전 자동 갱신",
+        "top_etf_signal": top_signal,
+        "top_etf_execution": top_exec,
+        "top_etf_score": round(float(top_etf.get("score", 0)), 1) if top_etf else None,
         "top_candidates": top_candidates,
-        "candidate_rule": "매수후보는 총점 75점 이상, RSI 72 이하, 현재가가 200일선 위인 종목입니다.",
-        "score_rule": "총점은 모멘텀 35, 추세 25, 리스크 20, 타이밍 10, 시장 모드 10을 합산합니다.",
+        "candidate_rule": "매수후보는 총점 75점 이상, RSI 72 이하, 가격이 200일선 위인 대형주입니다.",
+        "score_rule": "ETF는 12-1개월/6개월/3개월 모멘텀, 200일선, RSI를 합산합니다. 개별주는 모멘텀, 추세, 리스크, 거래대금, RSI를 함께 봅니다.",
         "steps": steps,
+        "plan": records(plan),
     }
 
 
@@ -255,12 +264,14 @@ def write_daily_payload(paths, payload: dict) -> None:
         "generated_at": payload["generated_at"],
         "daily_advice": payload["daily_advice"],
         "regime": payload["regime"],
-        "signal": payload["signal"],
+        "qg_core_metrics": payload["qg_core_metrics"],
+        "benchmarks": payload["benchmarks"],
+        "top_etfs": payload["qg_core_etfs"][:4],
         "top_scores": payload["scores"][:5],
         "plan": payload["plan"],
     }
     (paths.output / "daily.json").write_text(
-        json.dumps(daily, ensure_ascii=False, indent=2),
+        json.dumps(json_ready(daily), ensure_ascii=False, indent=2, allow_nan=False),
         encoding="utf-8",
     )
 
@@ -275,51 +286,45 @@ def build_payload(refresh: bool = False) -> dict:
     paths = resolve_paths(cfg)
     full_report(cfg, paths, refresh=refresh)
     regime = market_regime(cfg, paths, refresh=False)
-    signal = latest_etf_signal(cfg, paths, refresh=False)
+    etfs = qg_core_etf_scores(cfg, paths, refresh=False)
     scores = stock_scores(cfg, paths, refresh=False)
-    plan = portfolio_plan(cfg, paths, refresh=False)
-    etf = etf_backtest(cfg, paths, refresh=False)
-    rotation = stock_rotation_backtest(cfg, paths, refresh=False)
-    etf_metrics = etf["metrics"]["STRATEGY"]
-    rotation_metrics = rotation["metrics"].get("STOCK_ROTATION", {})
-    rotation_returns = rotation["returns"]
+    plan = qg_core_portfolio_plan(cfg, paths, refresh=False)
+    qg = qg_core_backtest(cfg, paths, refresh=False)
+    returns = qg["returns"]
+    qg_metrics = qg["metrics"].get("QG_CORE", {})
+    spy_metrics = qg["metrics"].get("SPY", {})
+    qqq_metrics = qg["metrics"].get("QQQ", {})
 
-    return {
+    payload = {
         "generated_at": datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S KST"),
         "regime": regime,
-        "signal": {
-            "as_of": signal["as_of"],
-            "current_signal": signal["current_signal"],
-            "latest_momentum_pct": pct(signal["latest_momentum"]),
+        "daily_advice": build_daily_advice(regime, etfs, scores, plan, cfg),
+        "qg_core_metrics": {
+            "cagr_pct": pct(qg_metrics.get("cagr")),
+            "mdd_pct": pct(qg_metrics.get("mdd")),
+            "sharpe": num(qg_metrics.get("sharpe"), 3),
+            "sortino": num(qg_metrics.get("sortino"), 3),
+            "calmar": num(qg_metrics.get("calmar"), 3),
+            "win_rate_pct": pct(qg_metrics.get("win_rate")),
         },
-        "etf_metrics": {
-            "cagr_pct": pct(etf_metrics["cagr"]),
-            "mdd_pct": pct(etf_metrics["mdd"]),
-            "sharpe": num(etf_metrics["sharpe"]),
-            "sortino": num(etf_metrics["sortino"]),
-            "calmar": num(etf_metrics["calmar"]),
-            "win_rate_pct": pct(etf_metrics["win_rate"]),
+        "benchmarks": {
+            "spy_cagr_pct": pct(spy_metrics.get("cagr")),
+            "spy_mdd_pct": pct(spy_metrics.get("mdd")),
+            "qqq_cagr_pct": pct(qqq_metrics.get("cagr")),
+            "qqq_mdd_pct": pct(qqq_metrics.get("mdd")),
         },
-        "rotation_metrics": {
-            "cagr_pct": pct(rotation_metrics.get("cagr")),
-            "mdd_pct": pct(rotation_metrics.get("mdd")),
-            "sharpe": num(rotation_metrics.get("sharpe")),
-            "sortino": num(rotation_metrics.get("sortino")),
-            "calmar": num(rotation_metrics.get("calmar")),
-            "win_rate_pct": pct(rotation_metrics.get("win_rate")),
-        },
-        "scores": records(scores, limit=50),
+        "qg_core_etfs": records(etfs),
+        "scores": records(scores, limit=60),
         "plan": records(plan),
-        "daily_advice": build_daily_advice(regime, signal, scores, plan, etf),
         "etf_guide": build_etf_guide(cfg, paths, refresh=refresh),
         "stock_charts": stock_chart_payload(scores, cfg, paths),
         "charts": {
-            "etf_equity": curve_records(etf["signals"]["equity"]),
-            "stock_rotation": curve_records((1 + rotation_returns["STOCK_ROTATION"].fillna(0)).cumprod()),
-            "spy": curve_records((1 + rotation_returns["SPY"].fillna(0)).cumprod()) if "SPY" in rotation_returns else [],
-            "qqq": curve_records((1 + rotation_returns["QQQ"].fillna(0)).cumprod()) if "QQQ" in rotation_returns else [],
+            "qg_core": curve_records((1 + returns["QG_CORE"].fillna(0)).cumprod()) if "QG_CORE" in returns else [],
+            "spy": curve_records((1 + returns["SPY"].fillna(0)).cumprod()) if "SPY" in returns else [],
+            "qqq": curve_records((1 + returns["QQQ"].fillna(0)).cumprod()) if "QQQ" in returns else [],
         },
     }
+    return json_ready(payload)
 
 
 HTML_TEMPLATE = r"""<!doctype html>
@@ -330,43 +335,40 @@ HTML_TEMPLATE = r"""<!doctype html>
   <meta name="theme-color" content="#2563eb">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <title>퀀트 가디언 v2</title>
+  <title>Quant Guardian QG-Core</title>
   <style>
-    :root {
-      --bg:#f4f6f9; --panel:#fff; --ink:#172033; --muted:#687589; --line:#dfe5ef;
-      --brand:#2563eb; --brand-soft:#e8f1ff; --green:#059669; --red:#dc2626;
-      --amber:#b45309; --shadow:0 6px 20px rgba(23,32,51,.07);
-    }
+    :root { --bg:#f4f6f9; --panel:#fff; --ink:#172033; --muted:#687589; --line:#dfe5ef; --brand:#2563eb; --brand-soft:#e8f1ff; --green:#059669; --red:#dc2626; --amber:#b45309; --shadow:0 6px 20px rgba(23,32,51,.07); }
     * { box-sizing:border-box; }
-    body { margin:0; background:var(--bg); color:var(--ink); font-family:Arial, "Malgun Gothic", sans-serif; letter-spacing:0; }
+    body { margin:0; background:var(--bg); color:var(--ink); font-family:Arial,"Malgun Gothic",sans-serif; letter-spacing:0; }
     header { background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
-    .topbar { max-width:1180px; margin:0 auto; padding:14px 20px; display:flex; gap:14px; align-items:center; justify-content:space-between; }
+    .topbar { max-width:1200px; margin:0 auto; padding:14px 20px; display:flex; gap:14px; align-items:center; justify-content:space-between; }
     h1 { margin:0; font-size:22px; }
     .sub { color:var(--muted); font-size:13px; margin-top:4px; }
     .actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .button { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:8px; padding:9px 12px; font-size:13px; font-weight:800; text-decoration:none; }
+    .button { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:8px; padding:9px 12px; font-size:13px; font-weight:800; text-decoration:none; cursor:pointer; }
     .button[hidden] { display:none; }
-    main { max-width:1180px; margin:0 auto; padding:22px 20px 48px; }
+    main { max-width:1200px; margin:0 auto; padding:22px 20px 48px; }
     .notice { background:#fff7ed; border:1px solid #fed7aa; color:#7c2d12; border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.55; margin-bottom:18px; }
     .grid { display:grid; gap:14px; }
     .summary { grid-template-columns:repeat(4,minmax(0,1fr)); }
-    .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:16px; }
-    .daily { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr); gap:18px; margin-bottom:16px; }
-    .daily h2 { margin:0; font-size:18px; }
+    .card { min-width:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:16px; }
+    .daily { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr); gap:18px; margin-bottom:16px; }
+    .daily h2 { margin:0; font-size:19px; }
     .daily-title { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
-    .mode-badge { display:inline-flex; align-items:center; min-height:26px; padding:4px 9px; border-radius:999px; background:#eef2ff; color:var(--brand); font-size:12px; font-weight:900; }
-    .mode-badge.good { background:#dcfce7; color:#166534; }
-    .mode-badge.warn { background:#fef3c7; color:#92400e; }
-    .mode-badge.bad { background:#fee2e2; color:#991b1b; }
+    .badge { display:inline-flex; align-items:center; min-height:26px; padding:4px 9px; border-radius:999px; background:#eef2ff; color:var(--brand); font-size:12px; font-weight:900; }
+    .badge.good { background:#dcfce7; color:#166534; }
+    .badge.warn { background:#fef3c7; color:#92400e; }
+    .badge.bad { background:#fee2e2; color:#991b1b; }
     .daily-copy { margin:0; color:var(--muted); line-height:1.6; font-size:13px; }
     .steps { margin:10px 0 0; padding-left:18px; color:var(--muted); font-size:13px; line-height:1.55; }
-    .candidate-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-    .candidate-chip { display:inline-flex; gap:6px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:6px 9px; background:#f8fafc; font-size:12px; font-weight:900; }
-    .candidate-chip span { color:var(--muted); font-weight:700; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .chip { display:inline-flex; gap:6px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:6px 9px; background:#f8fafc; font-size:12px; font-weight:900; }
+    .chip span { color:var(--muted); font-weight:700; }
     .label { color:var(--muted); font-size:12px; font-weight:800; }
     .value { margin-top:8px; font-size:26px; font-weight:900; }
     .hint { margin-top:6px; color:var(--muted); font-size:12px; line-height:1.45; }
     .positive { color:var(--green); }
+    .negative { color:var(--red); }
     .tabs { display:flex; gap:6px; margin:20px 0 12px; flex-wrap:wrap; }
     .tab { border:1px solid var(--line); background:#fff; border-radius:8px; padding:9px 12px; font-weight:800; cursor:pointer; }
     .tab.active { background:var(--brand-soft); color:var(--brand); border-color:#bfdbfe; }
@@ -376,15 +378,16 @@ HTML_TEMPLATE = r"""<!doctype html>
     .head h2 { margin:0; font-size:18px; }
     .head p { margin:4px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
     .split { display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; }
-    .table-wrap { overflow:auto; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); }
-    table { width:100%; min-width:1060px; border-collapse:collapse; }
+    .split > * { min-width:0; }
+    .table-wrap { max-width:100%; min-width:0; overflow:auto; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); }
+    table { width:100%; min-width:960px; border-collapse:collapse; }
     th,td { padding:11px 12px; border-bottom:1px solid var(--line); text-align:left; font-size:13px; vertical-align:top; word-break:keep-all; }
     th { background:#f8fafc; color:var(--muted); font-size:12px; }
     tr:last-child td { border-bottom:0; }
     .pill { display:inline-flex; min-height:24px; align-items:center; padding:3px 8px; border-radius:999px; background:#f1f5f9; color:#334155; font-weight:900; font-size:12px; white-space:nowrap; }
-    .good { background:#dcfce7; color:#166534; }
-    .warn { background:#fef3c7; color:#92400e; }
-    .bad { background:#fee2e2; color:#991b1b; }
+    .pill.good { background:#dcfce7; color:#166534; }
+    .pill.warn { background:#fef3c7; color:#92400e; }
+    .pill.bad { background:#fee2e2; color:#991b1b; }
     .kv { display:grid; grid-template-columns:1fr auto; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); }
     .kv:last-child { border-bottom:0; }
     .kv span:first-child { color:var(--muted); }
@@ -393,7 +396,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     .chart-grid { grid-template-columns:repeat(2,minmax(0,1fr)); margin:14px 0; }
     .chart-card h3 { margin:0 0 4px; font-size:15px; }
     .chart-card p { margin:0 0 12px; color:var(--muted); font-size:13px; line-height:1.45; }
-    .chart { width:100%; height:230px; display:block; overflow:visible; }
+    .chart { width:100%; height:240px; display:block; overflow:visible; }
     .chart-legend { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; color:var(--muted); font-size:12px; }
     .legend-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; }
     .stock-controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
@@ -401,7 +404,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     .period { border:1px solid var(--line); background:#fff; border-radius:8px; padding:8px 10px; font-weight:800; cursor:pointer; }
     .period.active { background:var(--brand-soft); color:var(--brand); border-color:#bfdbfe; }
     .bar-list { display:grid; gap:9px; }
-    .bar-row { display:grid; grid-template-columns:74px minmax(0,1fr) 54px; align-items:center; gap:10px; font-size:13px; }
+    .bar-row { display:grid; grid-template-columns:82px minmax(0,1fr) 60px; align-items:center; gap:10px; font-size:13px; }
     .bar-track { height:10px; background:#eef2f7; border-radius:999px; overflow:hidden; }
     .bar-fill { height:100%; background:var(--brand); border-radius:999px; }
     .etf-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-top:14px; }
@@ -416,66 +419,63 @@ HTML_TEMPLATE = r"""<!doctype html>
     .etf-card p { margin:0; color:var(--muted); font-size:13px; line-height:1.55; }
     .tip { position:relative; display:inline-flex; align-items:center; gap:4px; cursor:help; border-bottom:1px dotted #94a3b8; white-space:nowrap; }
     .tip::after { content:"?"; display:inline-grid; place-items:center; width:16px; height:16px; border-radius:50%; background:#eef2ff; color:var(--brand); font-size:11px; font-weight:900; }
-    .global-tooltip { display:none; position:fixed; z-index:1000; max-width:min(560px, calc(100vw - 32px)); width:max-content; background:#172033; color:#fff; padding:10px 12px; border-radius:8px; box-shadow:var(--shadow); font-size:12px; line-height:1.5; font-weight:500; white-space:normal; overflow-wrap:anywhere; pointer-events:none; }
+    .global-tooltip { display:none; position:fixed; z-index:1000; max-width:min(620px, calc(100vw - 32px)); width:max-content; background:#172033; color:#fff; padding:10px 12px; border-radius:8px; box-shadow:var(--shadow); font-size:12px; line-height:1.5; font-weight:500; white-space:normal; overflow-wrap:anywhere; pointer-events:none; }
     .global-tooltip.active { display:block; }
     .term-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
     .term { min-height:120px; }
     .term strong { display:block; margin-bottom:8px; }
     .term p { margin:0; color:var(--muted); font-size:13px; line-height:1.55; }
-    @media (max-width:900px) {
-      .summary,.daily,.split,.chart-grid,.etf-cards,.term-grid { grid-template-columns:1fr; }
-      .topbar { flex-direction:column; align-items:flex-start; }
-    }
+    @media (max-width:900px) { .summary,.daily,.split,.chart-grid,.etf-cards,.term-grid { grid-template-columns:1fr; } .topbar { flex-direction:column; align-items:flex-start; } }
   </style>
 </head>
 <body>
   <header>
     <div class="topbar">
       <div>
-        <h1>퀀트 가디언 v2</h1>
+        <h1>Quant Guardian QG-Core</h1>
         <div class="sub" id="generatedAt"></div>
       </div>
       <div class="actions">
-        <span class="tip" tabindex="0" data-tip="화면에 보이는 내용을 텍스트로 저장한 백업본입니다. CSV/HTML이 불편할 때 기록, 복사, 공유, 검산 용도로 씁니다. 평소에는 대시보드만 봐도 됩니다.">리포트 원문</span>
+        <span class="tip" tabindex="0" data-tip="화면에 보이는 내용을 텍스트로 저장한 백업본입니다. 검산, 기록, 공유가 필요할 때만 열면 됩니다.">리포트 원문</span>
         <a class="button" href="report.md">열기</a>
         <button class="button" id="installApp" hidden>앱 설치</button>
       </div>
     </div>
   </header>
   <main>
-    <div class="notice">투자 추천이 아니라 후보 발굴과 리스크 점검용 화면입니다. 자동 주문은 없고, 실제 매매 전에는 반드시 본인이 검토해야 합니다.</div>
+    <div class="notice">투자 추천이 아닙니다. 이 화면은 무료 데이터 기반의 퀀트 점검 도구이며 자동주문을 하지 않습니다. 실제 매매 전에는 계좌 비중, 세금, 수수료, 환율, 실적 발표 일정을 직접 확인해야 합니다.</div>
     <section class="card daily" id="dailyAdvice"></section>
     <div class="grid summary">
       <div class="card"><div class="label" id="labelRegime"></div><div class="value" id="regime"></div><div class="hint" id="regimeHint"></div></div>
       <div class="card"><div class="label" id="labelSignal"></div><div class="value" id="signal"></div><div class="hint" id="signalHint"></div></div>
-      <div class="card"><div class="label" id="labelEtfCagr"></div><div class="value positive" id="etfCagr"></div><div class="hint">월간 ETF 모멘텀 백테스트</div></div>
-      <div class="card"><div class="label" id="labelRotSharpe"></div><div class="value" id="rotSharpe"></div><div class="hint">상위 모멘텀 종목 월간 교체</div></div>
+      <div class="card"><div class="label" id="labelQGCagr"></div><div class="value positive" id="qgCagr"></div><div class="hint">QG-Core 월간 백테스트</div></div>
+      <div class="card"><div class="label" id="labelQGMdd"></div><div class="value negative" id="qgMdd"></div><div class="hint">최대 낙폭. 작을수록 좋습니다.</div></div>
     </div>
     <div class="card explain" id="currentRead"></div>
     <div class="grid chart-grid">
       <div class="card chart-card">
-        <h3>상위 후보 점수</h3>
-        <p>현재 스캐너가 가장 좋게 보는 종목을 막대로 비교합니다.</p>
-        <div id="scoreBars" class="bar-list"></div>
+        <h3>QG-Core 추천 비중</h3>
+        <p>현재 시장국면을 기준으로 성장 ETF, 대형주 위성, 방어자산을 나눠 봅니다.</p>
+        <div id="weightBars" class="bar-list"></div>
       </div>
       <div class="card chart-card">
-        <h3>제안 비중</h3>
-        <p>ETF 코어와 개별주 위성 비중을 한눈에 봅니다.</p>
-        <div id="weightBars" class="bar-list"></div>
+        <h3>성장 ETF 점수</h3>
+        <p>QQQ, SPYG, XLK, SMH를 모멘텀과 추세 기준으로 비교합니다.</p>
+        <div id="etfScoreBars" class="bar-list"></div>
       </div>
     </div>
     <div class="tabs">
-      <button class="tab active" data-view="overview">요약</button>
+      <button class="tab active" data-view="core">QG-Core</button>
       <button class="tab" data-view="scanner">종목 스캐너</button>
-      <button class="tab" data-view="portfolio">포트폴리오 제안</button>
+      <button class="tab" data-view="portfolio">비중 제안</button>
       <button class="tab" data-view="etfs">ETF 설명</button>
       <button class="tab" data-view="backtest">백테스트</button>
-      <button class="tab" data-view="terms">용어 설명</button>
+      <button class="tab" data-view="terms">용어</button>
     </div>
-    <section id="overview" class="view active">
+    <section id="core" class="view active">
       <div class="split">
         <div>
-          <div class="head"><div><h2>상위 퀀트 후보</h2><p>모멘텀, 추세, 리스크, 타이밍을 합산한 종목 후보입니다.</p></div></div>
+          <div class="head"><div><h2>상위 대형주 후보</h2><p>개별주는 포트폴리오의 전부가 아니라 25% 이하 위성으로만 봅니다.</p></div></div>
           <div class="table-wrap"><table id="topScores"></table></div>
         </div>
         <div class="card">
@@ -486,10 +486,10 @@ HTML_TEMPLATE = r"""<!doctype html>
       </div>
     </section>
     <section id="scanner" class="view">
-      <div class="head"><div><h2>종목 스캐너</h2><p>점수는 후보를 줄이는 필터입니다. 점수가 높아도 뉴스, 실적, 밸류에이션 확인은 별도입니다.</p></div></div>
+      <div class="head"><div><h2>종목 스캐너</h2><p>나스닥100/S&P100급 대형주 후보를 점수화합니다. 점수는 매수 명령이 아니라 검토 우선순위입니다.</p></div></div>
       <div class="card chart-card">
         <h3>종목 최근 차트</h3>
-        <p>상위 후보의 최근 가격 흐름을 1개월, 3개월, 6개월, 1년으로 나눠 봅니다.</p>
+        <p>상위 후보의 최근 흐름을 기간별로 봅니다.</p>
         <div class="stock-controls">
           <select id="stockSelect" aria-label="차트로 볼 종목 선택"></select>
           <button class="period" data-days="21">1M</button>
@@ -503,22 +503,20 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="table-wrap"><table id="scoreTable"></table></div>
     </section>
     <section id="portfolio" class="view">
-      <div class="head"><div><h2>포트폴리오 제안</h2><p>현재 시장 모드에 맞춘 ETF 코어와 개별주 위성 비중입니다.</p></div></div>
+      <div class="head"><div><h2>QG-Core 비중 제안</h2><p>공격 국면은 성장 ETF 60% + 대형주 25% + SGOV 15%, 중립/방어는 위험자산을 줄입니다.</p></div></div>
       <div class="table-wrap"><table id="planTable"></table></div>
     </section>
     <section id="etfs" class="view">
-      <div class="head"><div><h2>ETF 코어 신호</h2><p>신호 계산에는 SPY, QQQ, TLT, GLD를 비교하고, 모두 약하면 SHY로 대기합니다. 실제 현금성 대기 후보로는 SGOV도 함께 봅니다.</p></div></div>
-      <div class="card explain">QQQ 신호는 “나스닥 100 성장주 묶음이 가장 강하다”는 뜻입니다. 실제 장기 매수는 QQQ 그대로 할 수도 있고, 단가와 비용을 낮추고 싶다면 QQQM을 대안으로 검토할 수 있습니다. SPYG는 QQQ와 동일 상품이 아니라 S&P 500 성장주 ETF라 별도 후보로 봐야 합니다. SHY는 1-3년 단기국채라 가격 변동이 조금 있고, SGOV는 0-3개월 초단기 국채라 현금 대기에 더 가깝습니다.</div>
+      <div class="head"><div><h2>ETF 설명</h2><p>QG-Core에서 쓰는 ETF의 역할입니다. QQQ 신호는 장기 매수 대안으로 QQQM을 함께 봅니다.</p></div></div>
       <div id="etfCards" class="etf-cards"></div>
     </section>
     <section id="backtest" class="view">
-      <div class="head"><div><h2>백테스트</h2><p>과거에 이 규칙을 적용했을 때의 결과입니다. 미래 수익 보장이 아닙니다.</p></div></div>
+      <div class="head"><div><h2>QG-Core 백테스트</h2><p>과거 규칙 적용 결과입니다. 미래 수익 보장이 아니며 SPY/QQQ와 비교해야 의미가 있습니다.</p></div></div>
       <div class="card chart-card">
         <h3>누적 수익 곡선</h3>
-        <p>1에서 시작해 시간이 지나며 자산이 얼마나 커졌는지 보는 그래프입니다. 곡선이 출렁이는 구간이 실제로 버텨야 하는 위험입니다.</p>
         <svg id="equityChart" class="chart" role="img" aria-label="백테스트 누적 수익 곡선"></svg>
         <div class="chart-legend">
-          <span><i class="legend-dot" style="background:#2563eb"></i>개별주 로테이션</span>
+          <span><i class="legend-dot" style="background:#2563eb"></i>QG-Core</span>
           <span><i class="legend-dot" style="background:#059669"></i>SPY</span>
           <span><i class="legend-dot" style="background:#b45309"></i>QQQ</span>
         </div>
@@ -526,7 +524,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="grid summary" id="backtestCards"></div>
     </section>
     <section id="terms" class="view">
-      <div class="head"><div><h2>용어 설명</h2><p>마우스를 올리지 않아도 주요 항목을 한 번에 볼 수 있습니다.</p></div></div>
+      <div class="head"><div><h2>용어 설명</h2><p>처음 보는 사람이 이해할 수 있도록 주요 항목을 풀었습니다.</p></div></div>
       <div class="grid term-grid" id="termGrid"></div>
     </section>
   </main>
@@ -535,63 +533,49 @@ HTML_TEMPLATE = r"""<!doctype html>
     const DATA = __DATA__;
     const $ = id => document.getElementById(id);
     const HELP = {
-      regime:"SPY/QQQ 장기추세, SPY 6개월 수익률, VIX를 합산해 공격/중립/방어를 정합니다.",
-      signal:"SPY, QQQ, TLT, GLD의 12개월 모멘텀을 비교해 가장 강한 ETF를 고릅니다. 모두 약하면 SHY를 선택합니다.",
-      etfCagr:"ETF 코어 전략을 과거에 적용했을 때의 연평균 복리수익률입니다.",
-      rotSharpe:"개별주 로테이션 전략의 위험 대비 성과입니다. 1보다 높으면 변동성 대비 성과가 양호한 편으로 봅니다.",
-      score:"모멘텀 35%, 추세 25%, 리스크 20%, 타이밍 10%, 시장모드 10%를 합친 점수입니다.",
-      status:"매수후보, 관찰, 과열주의, 제외 중 하나입니다. 매수후보도 즉시 매수 뜻은 아닙니다.",
-      mom:"최근 1개월을 제외한 12개월 수익률입니다. 단기 급등락 노이즈를 줄이기 위한 모멘텀 지표입니다.",
-      ret6:"최근 6개월 수익률입니다. 중기 추세가 살아 있는지 봅니다.",
-      rsi:"최근 상승/하락 속도를 보는 지표입니다. 45-65는 무난, 72 이상은 과열로 봅니다.",
-      drawdown:"최근 1년 고점 대비 얼마나 내려와 있는지입니다. -20%면 고점보다 20% 낮다는 뜻입니다.",
-      spy200:"SPY가 200일 평균가격보다 위면 미국 주식시장의 장기 추세가 살아 있다고 봅니다.",
-      qqq200:"QQQ가 200일 평균가격보다 위면 성장주/기술주 장기 추세가 살아 있다고 봅니다.",
-      spy6:"SPY의 최근 6개월 수익률입니다. 플러스면 시장 흐름이 우호적입니다.",
-      vix:"시장 공포지수입니다. 보통 20 아래면 불안이 낮은 편, 20 위면 경계가 필요합니다.",
-      mdd:"Max Drawdown. 과거 최고점 대비 가장 크게 빠진 낙폭입니다.",
-      sortino:"하락 변동성만 위험으로 보고 계산한 위험 대비 성과입니다.",
-      calmar:"CAGR을 MDD로 나눈 값입니다. 수익률 대비 낙폭이 작은지 봅니다.",
-      win:"월별 수익률이 플러스였던 비율입니다."
+      regime:"SPY와 QQQ의 200일선, 6개월 수익률, VIX를 합산해 공격/중립/방어를 정합니다.",
+      signal:"성장 ETF 후보 중 모멘텀과 추세 점수가 가장 높은 후보입니다. QQQ가 1순위면 장기 매수 대안으로 QQQM도 함께 봅니다.",
+      cagr:"연평균 복리수익률입니다. 높을수록 좋지만 백테스트 수익은 미래를 보장하지 않습니다.",
+      mdd:"Max Drawdown. 과거 고점 대비 가장 크게 빠진 낙폭입니다.",
+      score:"ETF는 12-1개월, 6개월, 3개월 모멘텀과 200일선, RSI를 합산합니다. 개별주는 모멘텀, 추세, 리스크, 거래대금, RSI를 함께 봅니다.",
+      status:"매수후보, 관찰, 과열주의, 제외 중 하나입니다. 매수후보도 즉시 매수 명령은 아닙니다.",
+      mom:"최근 1개월을 제외한 12개월 수익률입니다. 단기 급등 노이즈를 줄이기 위한 모멘텀 지표입니다.",
+      rsi:"최근 상승/하락 속도를 보는 지표입니다. 45~65는 무난, 65~72는 추격주의, 72 초과는 과열로 봅니다.",
+      volume:"최근 60거래일 평균 거래량과 가격을 곱한 대략적인 거래대금입니다.",
+      shySgov:"SGOV는 0~3개월 초단기 국채라 현금 대기처에 가깝고, SHY는 1~3년 국채라 금리 변화에 더 민감합니다. 장기 백테스트는 SHY, 실제 대기자금 후보는 SGOV를 봅니다."
     };
     const TERMS = [
-      ["시장 모드", HELP.regime],
-      ["ETF 코어 신호", HELP.signal],
-      ["총점", HELP.score],
-      ["상태", HELP.status],
+      ["QG-Core", "성장 ETF를 핵심 엔진으로 쓰되 시장이 나쁠 때 SGOV/GLD/TLT로 후퇴하는 공격형 퀀트 모델입니다."],
+      ["시장국면", HELP.regime],
+      ["성장 ETF 코어", "QQQ/QQQM, SPYG, XLK, SMH 같은 성장주·기술주 ETF 후보입니다."],
+      ["대형주 위성", "전체 포트폴리오의 25% 이하로만 쓰는 개별주 후보입니다. 5개 내외로 시작합니다."],
       ["12-1 모멘텀", HELP.mom],
       ["RSI", HELP.rsi],
-      ["1년 낙폭", HELP.drawdown],
-      ["CAGR", HELP.etfCagr],
+      ["CAGR", HELP.cagr],
       ["MDD", HELP.mdd],
-      ["Sharpe", HELP.rotSharpe],
-      ["Sortino", HELP.sortino],
-      ["Calmar", HELP.calmar],
-      ["SHY와 SGOV", "SHY는 미국 1-3년 단기국채 ETF라 금리 변화에 어느 정도 흔들립니다. SGOV는 미국 0-3개월 초단기 국채 ETF라 현금 대기 성격이 더 강합니다. 그래서 백테스트 신호는 히스토리가 긴 SHY를 쓰고, 실제 대기자금 후보는 SGOV도 같이 봅니다."]
+      ["SGOV와 SHY", HELP.shySgov]
     ];
+    const esc = v => String(v ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
     const pct = v => v === null || v === undefined || Number.isNaN(Number(v)) ? "-" : `${Number(v).toFixed(2)}%`;
     const num = (v,d=2) => v === null || v === undefined || Number.isNaN(Number(v)) ? "-" : Number(v).toFixed(d);
     const volume = v => v === null || v === undefined || Number.isNaN(Number(v)) ? "-" : Number(v).toLocaleString("ko-KR");
-    const escapeAttr = v => String(v ?? "").replace(/[&<>"']/g, ch => ({
-      "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;", "'":"&#39;"
-    }[ch]));
-    const tip = (label, text) => `<span class="tip" tabindex="0" data-tip="${escapeAttr(text)}">${label}</span>`;
+    const tip = (label, text) => `<span class="tip" tabindex="0" data-tip="${esc(text)}">${esc(label)}</span>`;
     const pill = v => {
-      const cls = v === "매수후보" ? "good" : v === "과열주의" || v === "관찰" ? "warn" : v === "방어" ? "bad" : "";
-      return `<span class="pill ${cls}">${v || "-"}</span>`;
+      const cls = v === "매수후보" ? "good" : v === "과열주의" || v === "관찰" ? "warn" : v === "방어" || v === "제외" ? "bad" : "";
+      return `<span class="pill ${cls}">${esc(v || "-")}</span>`;
     };
     function table(el, cols, rows) {
-      el.innerHTML = `<thead><tr>${cols.map(c=>`<th>${c.help ? tip(c.label, c.help) : c.label}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${c.render ? c.render(r[c.key], r) : (r[c.key] ?? "-")}</td>`).join("")}</tr>`).join("")}</tbody>`;
+      el.innerHTML = `<thead><tr>${cols.map(c=>`<th>${c.help ? tip(c.label, c.help) : esc(c.label)}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${c.render ? c.render(r[c.key], r) : esc(r[c.key] ?? "-")}</td>`).join("")}</tr>`).join("")}</tbody>`;
     }
     function barList(el, rows, valueKey, maxValue, labelKey, formatter) {
       el.innerHTML = rows.map(row => {
         const value = Number(row[valueKey] ?? 0);
         const width = Math.max(2, Math.min(100, maxValue ? value / maxValue * 100 : 0));
-        return `<div class="bar-row"><strong>${row[labelKey]}</strong><div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div><span>${formatter(value)}</span></div>`;
+        return `<div class="bar-row"><strong>${esc(row[labelKey])}</strong><div class="bar-track"><div class="bar-fill" style="width:${width}%"></div></div><span>${formatter(value)}</span></div>`;
       }).join("");
     }
     function lineChart(el, seriesList, labelFormatter = v => `${v.toFixed(1)}x`) {
-      const width = 720, height = 230, pad = 28;
+      const width = 720, height = 240, pad = 30;
       const points = seriesList.flatMap(s => s.data.map((p, i) => ({ x:i, y:Number(p.value) })));
       if (!points.length) {
         el.innerHTML = `<text x="20" y="40" fill="#687589">표시할 그래프 데이터가 없습니다.</text>`;
@@ -606,48 +590,17 @@ HTML_TEMPLATE = r"""<!doctype html>
         const y = height - pad - ((Number(p.value) - minY) / yRange * (height - pad * 2));
         return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
       }).join(" ");
-      const lines = seriesList.map(s => `<path d="${path(s.data)}" fill="none" stroke="${s.color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>`).join("");
+      const lines = seriesList.map(s => `<path d="${path(s.data)}" fill="none" stroke="${s.color}" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"></path>`).join("");
       el.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      el.innerHTML = `
-        <line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" stroke="#dfe5ef"></line>
-        <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height-pad}" stroke="#dfe5ef"></line>
-        <text x="${pad}" y="18" fill="#687589" font-size="12">${labelFormatter(maxY)}</text>
-        <text x="${pad}" y="${height-6}" fill="#687589" font-size="12">${labelFormatter(minY)}</text>
-        ${lines}`;
+      el.innerHTML = `<line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" stroke="#dfe5ef"></line><line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height-pad}" stroke="#dfe5ef"></line><text x="${pad}" y="18" fill="#687589" font-size="12">${labelFormatter(maxY)}</text><text x="${pad}" y="${height-6}" fill="#687589" font-size="12">${labelFormatter(minY)}</text>${lines}`;
     }
     function renderEtfCards(el, rows) {
-      el.innerHTML = rows.map(row => `
-        <div class="card etf-card">
-          <div class="etf-title"><h3>${row.ticker}</h3><span class="etf-role">${row.role}</span></div>
-          <div class="etf-meta">
-            <div class="mini"><span>추종/노출</span><strong>${row.tracks}</strong></div>
-            <div class="mini"><span>최근 종가</span><strong>${row.last === null ? "-" : "$" + num(row.last, 2)}</strong></div>
-            <div class="mini"><span>60일 평균 거래량</span><strong>${volume(row.avg_volume_60d)}</strong></div>
-          </div>
-          <p><strong>무엇인가:</strong> ${row.what}</p>
-          <p><strong>언제 보는가:</strong> ${row.use}</p>
-          <p><strong>메모:</strong> ${row.note}</p>
-        </div>`).join("");
+      el.innerHTML = rows.map(row => `<div class="card etf-card"><div class="etf-title"><h3>${esc(row.ticker)}</h3><span class="etf-role">${esc(row.role)}</span></div><div class="etf-meta"><div class="mini"><span>추종/노출</span><strong>${esc(row.tracks)}</strong></div><div class="mini"><span>최근 종가</span><strong>${row.last === null ? "-" : "$" + num(row.last, 2)}</strong></div><div class="mini"><span>60일 평균 거래량</span><strong>${volume(row.avg_volume_60d)}</strong></div></div><p><strong>무엇인가:</strong> ${esc(row.what)}</p><p><strong>언제 보는가:</strong> ${esc(row.use)}</p><p><strong>메모:</strong> ${esc(row.note)}</p></div>`).join("");
     }
     function renderDailyAdvice() {
       const advice = DATA.daily_advice || {};
       const candidates = advice.top_candidates || [];
-      $("dailyAdvice").innerHTML = `
-        <div>
-          <div class="daily-title">
-            <h2>오늘의 행동: ${advice.action || "유지/관찰"}</h2>
-            <span class="mode-badge ${advice.tone || ""}">${advice.data_mode || "장 마감 종가 기준"}</span>
-          </div>
-          <p class="daily-copy">${advice.summary || "오늘은 기존 포트폴리오를 유지하고 다음 갱신을 기다립니다."}</p>
-          <div class="candidate-list">
-            ${candidates.length ? candidates.map(item => `<span class="candidate-chip">${item.ticker}<span>${item.sector} · ${num(item.score, 1)}점</span></span>`).join("") : `<span class="candidate-chip">신규 강한 후보 없음</span>`}
-          </div>
-        </div>
-        <div>
-          <div class="label">갱신 방식</div>
-          <div class="value" style="font-size:18px">${advice.refresh_rule || "미국장 거래일 다음날 07:30 KST 자동 갱신"}</div>
-          <ol class="steps">${(advice.steps || []).map(step => `<li>${step}</li>`).join("")}</ol>
-        </div>`;
+      $("dailyAdvice").innerHTML = `<div><div class="daily-title"><h2>오늘의 행동: ${esc(advice.action || "유지 / 관찰")}</h2><span class="badge ${esc(advice.tone || "")}">${esc(advice.data_mode || "미국장 마감 종가 기준")}</span></div><p class="daily-copy">${esc(advice.summary || "오늘은 기존 포트폴리오를 유지하고 다음 갱신을 기다립니다.")}</p><div class="chips">${candidates.length ? candidates.map(item => `<span class="chip">${esc(item.ticker)}<span>${esc(item.sector)} · ${num(item.score, 1)}점</span></span>`).join("") : `<span class="chip">신규 강한 후보 없음</span>`}</div></div><div><div class="label">갱신 방식</div><div class="value" style="font-size:18px">${esc(advice.refresh_rule || "미국장 거래일 다음 한국 오전 자동 갱신")}</div><ol class="steps">${(advice.steps || []).map(step => `<li>${esc(step)}</li>`).join("")}</ol></div>`;
     }
     function showTooltip(target) {
       const tooltip = $("globalTooltip");
@@ -665,24 +618,11 @@ HTML_TEMPLATE = r"""<!doctype html>
       tooltip.style.left = `${Math.max(margin, left)}px`;
       tooltip.style.top = `${Math.max(margin, top)}px`;
     }
-    function hideTooltip() {
-      const tooltip = $("globalTooltip");
-      if (tooltip) tooltip.classList.remove("active");
-    }
-    document.addEventListener("mouseover", event => {
-      const target = event.target.closest(".tip");
-      if (target) showTooltip(target);
-    });
-    document.addEventListener("focusin", event => {
-      const target = event.target.closest(".tip");
-      if (target) showTooltip(target);
-    });
-    document.addEventListener("mouseout", event => {
-      if (event.target.closest(".tip")) hideTooltip();
-    });
-    document.addEventListener("focusout", event => {
-      if (event.target.closest(".tip")) hideTooltip();
-    });
+    function hideTooltip() { const tooltip = $("globalTooltip"); if (tooltip) tooltip.classList.remove("active"); }
+    document.addEventListener("mouseover", e => { const t = e.target.closest(".tip"); if (t) showTooltip(t); });
+    document.addEventListener("focusin", e => { const t = e.target.closest(".tip"); if (t) showTooltip(t); });
+    document.addEventListener("mouseout", e => { if (e.target.closest(".tip")) hideTooltip(); });
+    document.addEventListener("focusout", e => { if (e.target.closest(".tip")) hideTooltip(); });
     window.addEventListener("scroll", hideTooltip, true);
     let stockPeriod = 63;
     function renderStockChart() {
@@ -700,7 +640,7 @@ HTML_TEMPLATE = r"""<!doctype html>
       const select = $("stockSelect");
       if (!select) return;
       const tickers = DATA.scores.slice(0, 25).map(row => row.ticker);
-      select.innerHTML = tickers.map(ticker => `<option value="${ticker}">${ticker}</option>`).join("");
+      select.innerHTML = tickers.map(ticker => `<option value="${esc(ticker)}">${esc(ticker)}</option>`).join("");
       select.addEventListener("change", renderStockChart);
       document.querySelectorAll(".period").forEach(btn => btn.addEventListener("click", () => {
         document.querySelectorAll(".period").forEach(item => item.classList.remove("active"));
@@ -725,69 +665,69 @@ HTML_TEMPLATE = r"""<!doctype html>
         deferredPrompt = null;
         installButton.hidden = true;
       });
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("service-worker.js").catch(() => {});
-      }
+      if ("serviceWorker" in navigator) navigator.serviceWorker.register("service-worker.js").catch(() => {});
     }
     renderDailyAdvice();
     setupInstallPrompt();
     $("labelRegime").innerHTML = tip("시장 모드", HELP.regime);
-    $("labelSignal").innerHTML = tip("ETF 코어 신호", HELP.signal);
-    $("labelEtfCagr").innerHTML = tip("ETF CAGR", HELP.etfCagr);
-    $("labelRotSharpe").innerHTML = tip("주식 로테이션 Sharpe", HELP.rotSharpe);
+    $("labelSignal").innerHTML = tip("ETF 1순위", HELP.signal);
+    $("labelQGCagr").innerHTML = tip("QG-Core CAGR", HELP.cagr);
+    $("labelQGMdd").innerHTML = tip("QG-Core MDD", HELP.mdd);
     $("generatedAt").textContent = `마지막 계산 ${DATA.generated_at}`;
     $("regime").textContent = DATA.regime.regime;
-    $("regimeHint").textContent = `${DATA.regime.as_of} 기준, ${DATA.regime.score}점`;
-    $("signal").textContent = DATA.signal.current_signal;
-    $("signalHint").textContent = `${DATA.signal.as_of} 기준, 12개월 모멘텀 ${pct(DATA.signal.latest_momentum_pct)}`;
-    $("etfCagr").textContent = pct(DATA.etf_metrics.cagr_pct);
-    $("rotSharpe").textContent = num(DATA.rotation_metrics.sharpe, 3);
-    const qqqAlt = DATA.signal.current_signal === "QQQ" ? " 실제 매수는 QQQ뿐 아니라 QQQM도 비교할 수 있습니다." : "";
-    $("currentRead").textContent = `현재 해석: 시장 모드는 ${DATA.regime.regime}, ETF 코어 신호는 ${DATA.signal.current_signal}입니다. 이 화면은 실시간 호가가 아니라 ${DATA.signal.as_of} 장 마감 종가로 계산한 일일 판단입니다.${qqqAlt} 상위 종목은 후보일 뿐이며, 개별 뉴스와 실적 확인 없이 바로 매수한다는 뜻은 아닙니다.`;
+    $("regimeHint").textContent = `${DATA.regime.as_of} 기준, ${DATA.regime.score}/${DATA.regime.max_score}점`;
+    const topEtf = DATA.qg_core_etfs[0] || {};
+    $("signal").textContent = DATA.daily_advice.top_etf_execution || topEtf.ticker || "-";
+    $("signalHint").textContent = topEtf.ticker ? `신호 기준 ${topEtf.ticker}, 점수 ${num(topEtf.score, 1)}, 12-1M ${pct(Number(topEtf.mom_12_1)*100)}` : "-";
+    $("qgCagr").textContent = pct(DATA.qg_core_metrics.cagr_pct);
+    $("qgMdd").textContent = pct(DATA.qg_core_metrics.mdd_pct);
+    $("currentRead").textContent = `현재 해석: 시장은 ${DATA.regime.regime} 모드입니다. QG-Core는 성장주 베타를 무조건 크게 가져가는 전략이 아니라, 시장국면이 좋을 때만 QQQM/SPYG/XLK/SMH 같은 성장 ETF 노출을 키우고, 나쁠 때는 SGOV/GLD/TLT 비중을 높이는 전략입니다.`;
     $("regimeFacts").innerHTML = [
-      [tip("SPY 200일선 위", HELP.spy200), DATA.regime.market_above_200d === true ? "예" : DATA.regime.market_above_200d === false ? "아니오" : "없음"],
-      [tip("QQQ 200일선 위", HELP.qqq200), DATA.regime.growth_above_200d === true ? "예" : DATA.regime.growth_above_200d === false ? "아니오" : "없음"],
-      [tip("SPY 6개월", HELP.spy6), pct((DATA.regime.market_6m_return ?? 0) * 100)],
-      [tip("VIX", HELP.vix), num(DATA.regime.vix, 2)]
-    ].map(([k,v])=>`<div class="kv"><span>${k}</span><span>${v}</span></div>`).join("");
-    $("regimeExplain").textContent = "4개 조건 중 많이 충족할수록 공격, 적게 충족할수록 방어입니다. 지금처럼 SPY/QQQ가 200일선 위이고 VIX가 낮으면 시장 위험을 비교적 감수할 수 있다고 봅니다.";
+      [tip("SPY 200일선 위", "SPY가 200일 평균 가격보다 위이면 미국 대형주 시장의 장기 추세가 살아 있다고 봅니다."), DATA.regime.market_above_200d === true ? "예" : DATA.regime.market_above_200d === false ? "아니오" : "없음"],
+      [tip("QQQ 200일선 위", "QQQ가 200일 평균 가격보다 위이면 성장주/기술주의 장기 추세가 살아 있다고 봅니다."), DATA.regime.growth_above_200d === true ? "예" : DATA.regime.growth_above_200d === false ? "아니오" : "없음"],
+      [tip("SPY 6개월", "최근 6개월 SPY 수익률입니다."), pct((DATA.regime.market_6m_return ?? 0) * 100)],
+      [tip("QQQ 6개월", "최근 6개월 QQQ 수익률입니다."), pct((DATA.regime.growth_6m_return ?? 0) * 100)],
+      [tip("VIX", "시장 공포지수입니다. 보통 20 아래면 안정, 20 위면 경계로 봅니다."), num(DATA.regime.vix, 2)]
+    ].map(([k,v])=>`<div class="kv"><span>${k}</span><span>${esc(v)}</span></div>`).join("");
+    $("regimeExplain").textContent = "5개 조건 중 4개 이상이면 공격, 2~3개면 중립, 그보다 낮으면 방어로 봅니다.";
     const scoreCols = [
       {key:"ticker", label:"티커"},
       {key:"sector", label:"업종"},
       {key:"quant_score", label:"총점", help:HELP.score, render:v=>num(v,1)},
       {key:"status", label:"상태", help:HELP.status, render:v=>pill(v)},
       {key:"mom_12_1", label:"12-1 모멘텀", help:HELP.mom, render:v=>pct(Number(v)*100)},
-      {key:"ret_6m", label:"6개월", help:HELP.ret6, render:v=>pct(Number(v)*100)},
+      {key:"ret_6m", label:"6개월", render:v=>pct(Number(v)*100)},
       {key:"rsi14", label:"RSI", help:HELP.rsi, render:v=>num(v,1)},
-      {key:"drawdown_252d", label:"1년 낙폭", help:HELP.drawdown, render:v=>pct(Number(v)*100)},
+      {key:"dollar_volume_m", label:"거래대금($M)", help:HELP.volume, render:v=>num(v,1)},
       {key:"reason", label:"이유"}
     ];
     table($("topScores"), scoreCols, DATA.scores.slice(0,8));
     table($("scoreTable"), scoreCols, DATA.scores);
     setupStockChart();
-    barList($("scoreBars"), DATA.scores.slice(0, 6), "quant_score", 100, "ticker", v => num(v, 1));
     table($("planTable"), [
       {key:"asset", label:"자산"},
+      {key:"signal_asset", label:"신호 기준"},
       {key:"type", label:"구분"},
       {key:"weight", label:"비중", render:v=>pct(Number(v)*100)},
       {key:"reason", label:"이유"}
     ], DATA.plan);
     barList($("weightBars"), DATA.plan, "weight", 1, "asset", v => pct(v * 100));
+    barList($("etfScoreBars"), DATA.qg_core_etfs, "score", 100, "ticker", v => num(v, 1));
     renderEtfCards($("etfCards"), DATA.etf_guide);
     lineChart($("equityChart"), [
-      {name:"개별주 로테이션", color:"#2563eb", data:DATA.charts.stock_rotation || []},
+      {name:"QG-Core", color:"#2563eb", data:DATA.charts.qg_core || []},
       {name:"SPY", color:"#059669", data:DATA.charts.spy || []},
       {name:"QQQ", color:"#b45309", data:DATA.charts.qqq || []}
     ]);
     $("backtestCards").innerHTML = [
-      [tip("ETF CAGR", HELP.etfCagr), pct(DATA.etf_metrics.cagr_pct)],
-      [tip("ETF MDD", HELP.mdd), pct(DATA.etf_metrics.mdd_pct)],
-      [tip("ETF Sharpe", HELP.rotSharpe), num(DATA.etf_metrics.sharpe, 3)],
-      ["주식 로테이션 CAGR", pct(DATA.rotation_metrics.cagr_pct)],
-      ["주식 로테이션 MDD", pct(DATA.rotation_metrics.mdd_pct)],
-      ["주식 로테이션 Sharpe", num(DATA.rotation_metrics.sharpe, 3)]
-    ].map(([k,v])=>`<div class="card"><div class="label">${k}</div><div class="value">${v}</div></div>`).join("");
-    $("termGrid").innerHTML = TERMS.map(([k,v])=>`<div class="card term"><strong>${k}</strong><p>${v}</p></div>`).join("");
+      [tip("QG-Core CAGR", HELP.cagr), pct(DATA.qg_core_metrics.cagr_pct)],
+      [tip("QG-Core MDD", HELP.mdd), pct(DATA.qg_core_metrics.mdd_pct)],
+      ["QG-Core Sharpe", num(DATA.qg_core_metrics.sharpe, 3)],
+      ["SPY CAGR", pct(DATA.benchmarks.spy_cagr_pct)],
+      ["QQQ CAGR", pct(DATA.benchmarks.qqq_cagr_pct)],
+      ["QQQ MDD", pct(DATA.benchmarks.qqq_mdd_pct)]
+    ].map(([k,v])=>`<div class="card"><div class="label">${k}</div><div class="value">${esc(v)}</div></div>`).join("");
+    $("termGrid").innerHTML = TERMS.map(([k,v])=>`<div class="card term"><strong>${esc(k)}</strong><p>${esc(v)}</p></div>`).join("");
     document.querySelectorAll(".tab").forEach(btn => btn.addEventListener("click", () => {
       document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
       document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
@@ -800,13 +740,13 @@ HTML_TEMPLATE = r"""<!doctype html>
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="퀀트 가디언 v2 HTML 대시보드 생성")
-    parser.add_argument("--refresh", action="store_true", help="무료 가격 데이터를 새로 받은 뒤 생성")
+    parser = argparse.ArgumentParser(description="Quant Guardian QG-Core HTML 대시보드 생성")
+    parser.add_argument("--refresh", action="store_true", help="무료 가격 데이터를 새로 받아 생성")
     args = parser.parse_args()
     cfg = load_config(DEFAULT_CONFIG)
     paths = resolve_paths(cfg)
     payload = build_payload(refresh=args.refresh)
-    html = HTML_TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False))
+    html = HTML_TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False, allow_nan=False))
     out = paths.output / "dashboard.html"
     out.write_text(html, encoding="utf-8-sig")
     write_output_assets(paths, payload)

@@ -15,7 +15,7 @@ DEFAULT_URL = "https://9959930-code.github.io/quant-guardian/"
 
 def load_daily_payload(path: str | None, url: str | None) -> dict:
     if url:
-        request = Request(url, headers={"User-Agent": "quant-guardian-telegram/0.1"})
+        request = Request(url, headers={"User-Agent": "quant-guardian-telegram/0.2"})
         with urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8-sig"))
     data_path = Path(path or "output/daily.json")
@@ -37,45 +37,50 @@ def signed_pct(value: float | int | None) -> str:
 def build_message(payload: dict, site_url: str) -> str:
     advice = payload.get("daily_advice", {})
     regime = payload.get("regime", {})
-    signal = payload.get("signal", {})
+    metrics = payload.get("qg_core_metrics", {})
+    benchmarks = payload.get("benchmarks", {})
     candidates = advice.get("top_candidates", [])[:5]
+    plan = payload.get("plan", [])[:8]
 
-    if candidates:
-        candidate_lines = [
-            (
-                f"{idx}. {item['ticker']} | {item.get('score', 0):.1f}점 | "
-                f"12-1M {signed_pct(item.get('mom_12_1_pct'))} | "
-                f"RSI {item.get('rsi14', '-')}"
-            )
-            for idx, item in enumerate(candidates, start=1)
-        ]
-    else:
-        candidate_lines = ["신규 강한 후보 없음"]
-    steps = "\n".join(f"- {step}" for step in advice.get("steps", [])[:2])
+    candidate_lines = [
+        (
+            f"{idx}. {item['ticker']} | {item.get('sector', '-')} | "
+            f"{item.get('score', 0):.1f}점 | 12-1M {signed_pct(item.get('mom_12_1_pct'))} | "
+            f"RSI {item.get('rsi14', '-')}"
+        )
+        for idx, item in enumerate(candidates, start=1)
+    ] or ["강한 신규 후보 없음"]
+
+    plan_lines = [
+        f"- {row.get('asset', '-')}: {float(row.get('weight', 0)) * 100:.1f}% ({row.get('type', '-')})"
+        for row in plan
+    ]
 
     return "\n".join(
         [
-            "[퀀트 가디언 Daily]",
+            "[Quant Guardian QG-Core]",
             "",
-            f"오늘의 행동: {advice.get('action', '유지/관찰')}",
+            f"오늘의 행동: {advice.get('action', '유지 / 관찰')}",
             f"판단 이유: {advice.get('summary', '-')}",
             "",
-            "[시장/ETF]",
-            f"- 기준일: {signal.get('as_of', '-')}",
-            f"- 시장 모드: {regime.get('regime', '-')} ({regime.get('score', '-')}점)",
-            f"- ETF 코어: {signal.get('current_signal', '-')}",
-            f"- ETF 12개월 모멘텀: {pct(signal.get('latest_momentum_pct'))}",
+            "[시장 모드]",
+            f"- 기준일: {regime.get('as_of', '-')}",
+            f"- 모드: {regime.get('regime', '-')} ({regime.get('score', '-')}/{regime.get('max_score', '-')})",
+            f"- ETF 1순위: {advice.get('top_etf_execution', '-')} (신호 기준 {advice.get('top_etf_signal', '-')})",
+            f"- ETF 점수: {advice.get('top_etf_score', '-')}",
             "",
-            "[상위 후보]",
+            "[QG-Core 비중]",
+            *plan_lines,
+            "",
+            "[상위 대형주 후보]",
             *candidate_lines,
             "",
-            "[후보 기준]",
-            f"- {advice.get('candidate_rule', '총점, 추세, RSI 조건을 통과한 종목입니다.')}",
-            f"- {advice.get('score_rule', '모멘텀, 추세, 리스크, 타이밍, 시장 모드를 합산합니다.')}",
+            "[백테스트 참고]",
+            f"- QG-Core CAGR/MDD: {pct(metrics.get('cagr_pct'))} / {pct(metrics.get('mdd_pct'))}",
+            f"- SPY CAGR: {pct(benchmarks.get('spy_cagr_pct'))}",
+            f"- QQQ CAGR: {pct(benchmarks.get('qqq_cagr_pct'))}",
             "",
-            steps,
-            "",
-            "자동주문 아님. 실제 매매 전 직접 확인.",
+            "자동주문 아님. 실제 매매 전 계좌 비중, 세금, 수수료, 환율, 실적 일정을 직접 확인.",
             site_url,
         ]
     ).strip()
