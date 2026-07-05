@@ -6,7 +6,7 @@ on:
       - main
   workflow_dispatch:
   schedule:
-    # 07:30 KST, after the regular US market close.
+    # 07:30 KST on the next Korean morning after each regular US trading day.
     - cron: "30 22 * * 1-5"
 
 permissions:
@@ -43,6 +43,9 @@ jobs:
           cp output/dashboard.html public/index.html
           cp output/report.html public/report.html
           cp output/report.md public/report.md
+          cp output/manifest.webmanifest public/manifest.webmanifest
+          cp output/service-worker.js public/service-worker.js
+          cp output/icon.svg public/icon.svg
           cp output/*.csv public/
           touch public/.nojekyll
 

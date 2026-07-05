@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -20,6 +22,10 @@ from quant_guardian import (
     stock_rotation_backtest,
     stock_scores,
 )
+
+
+ROOT = Path(__file__).resolve().parent
+STATIC_ASSETS = ["manifest.webmanifest", "service-worker.js", "icon.svg"]
 
 
 ETF_GUIDE = [
@@ -168,6 +174,76 @@ def stock_chart_payload(scores: pd.DataFrame, cfg: dict, paths, limit: int = 25)
     return charts
 
 
+def build_daily_advice(regime: dict, signal: dict, scores: pd.DataFrame, plan: pd.DataFrame, etf: dict) -> dict:
+    signals = etf["signals"].dropna(subset=["signal"])
+    current_signal = signal["current_signal"]
+    previous_signal = None
+    if len(signals) >= 2:
+        previous_signal = str(signals["signal"].iloc[-2])
+
+    candidates = scores[scores["status"] == "매수후보"].head(5) if not scores.empty else pd.DataFrame()
+    top_candidates = [
+        {
+            "ticker": row["ticker"],
+            "sector": row.get("sector", "기타"),
+            "score": round(float(row["quant_score"]), 1),
+        }
+        for _, row in candidates.iterrows()
+    ]
+    cash_rows = plan[plan["type"] == "현금/대기"] if not plan.empty else pd.DataFrame()
+    cash_weight = float(cash_rows["weight"].sum()) if not cash_rows.empty else 0.0
+
+    if regime["regime"] == "방어":
+        action = "위험 축소"
+        tone = "bad"
+        summary = "방어 모드입니다. 신규 개별주 편입보다 현금성 대기와 손실 제한을 먼저 봅니다."
+    elif previous_signal and current_signal != previous_signal:
+        action = "ETF 리밸런싱 검토"
+        tone = "warn"
+        summary = f"ETF 코어 신호가 {previous_signal}에서 {current_signal}로 바뀌었습니다. 월간 리밸런싱 대상인지 확인합니다."
+    elif len(top_candidates) >= 3 and regime["regime"] == "공격":
+        action = "분할 편입 검토"
+        tone = "good"
+        summary = "공격 모드이고 매수후보가 충분합니다. 한 번에 사기보다 후보를 나눠 검토합니다."
+    elif len(top_candidates) > 0:
+        action = "관찰 후 소액 검토"
+        tone = "warn"
+        summary = "후보는 있지만 시장 모드가 강하지 않습니다. 기존 보유를 우선 확인하고 소액만 검토합니다."
+    else:
+        action = "유지/관찰"
+        tone = ""
+        summary = "강한 신규 후보가 부족합니다. 기존 포트폴리오를 유지하고 다음 갱신을 기다립니다."
+
+    steps = [
+        f"데이터 기준일 {signal['as_of']}의 미국장 마감 종가로 계산했습니다.",
+        "장중 실시간 가격은 반영하지 않고 다음 자동 갱신 때 반영합니다.",
+        "실제 주문 전에는 보유 비중, 환율, 수수료, 실적 발표 일정을 별도로 확인합니다.",
+    ]
+    if cash_weight >= 0.20:
+        steps.append(f"현재 제안에는 현금/SGOV 대기 비중이 {cash_weight * 100:.0f}% 있습니다.")
+    if top_candidates:
+        steps.append("개별주는 상위 후보를 바로 매수하는 뜻이 아니라 검토 목록으로 봅니다.")
+
+    return {
+        "action": action,
+        "tone": tone,
+        "summary": summary,
+        "data_mode": "장 마감 종가 기준",
+        "refresh_rule": "미국장 거래일 다음날 07:30 KST 자동 갱신",
+        "previous_signal": previous_signal,
+        "current_signal": current_signal,
+        "top_candidates": top_candidates,
+        "steps": steps,
+    }
+
+
+def write_static_assets(paths) -> None:
+    for asset in STATIC_ASSETS:
+        source = ROOT / asset
+        if source.exists():
+            shutil.copyfile(source, paths.output / asset)
+
+
 def build_payload(refresh: bool = False) -> dict:
     cfg = load_config(DEFAULT_CONFIG)
     paths = resolve_paths(cfg)
@@ -208,6 +284,7 @@ def build_payload(refresh: bool = False) -> dict:
         },
         "scores": records(scores, limit=50),
         "plan": records(plan),
+        "daily_advice": build_daily_advice(regime, signal, scores, plan, etf),
         "etf_guide": build_etf_guide(cfg, paths, refresh=refresh),
         "stock_charts": stock_chart_payload(scores, cfg, paths),
         "charts": {
@@ -224,6 +301,9 @@ HTML_TEMPLATE = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <title>퀀트 가디언 v2</title>
   <style>
     :root {
@@ -239,11 +319,24 @@ HTML_TEMPLATE = r"""<!doctype html>
     .sub { color:var(--muted); font-size:13px; margin-top:4px; }
     .actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .button { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:8px; padding:9px 12px; font-size:13px; font-weight:800; text-decoration:none; }
+    .button[hidden] { display:none; }
     main { max-width:1180px; margin:0 auto; padding:22px 20px 48px; }
     .notice { background:#fff7ed; border:1px solid #fed7aa; color:#7c2d12; border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.55; margin-bottom:18px; }
     .grid { display:grid; gap:14px; }
     .summary { grid-template-columns:repeat(4,minmax(0,1fr)); }
     .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:var(--shadow); padding:16px; }
+    .daily { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(260px,.8fr); gap:18px; margin-bottom:16px; }
+    .daily h2 { margin:0; font-size:18px; }
+    .daily-title { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+    .mode-badge { display:inline-flex; align-items:center; min-height:26px; padding:4px 9px; border-radius:999px; background:#eef2ff; color:var(--brand); font-size:12px; font-weight:900; }
+    .mode-badge.good { background:#dcfce7; color:#166534; }
+    .mode-badge.warn { background:#fef3c7; color:#92400e; }
+    .mode-badge.bad { background:#fee2e2; color:#991b1b; }
+    .daily-copy { margin:0; color:var(--muted); line-height:1.6; font-size:13px; }
+    .steps { margin:10px 0 0; padding-left:18px; color:var(--muted); font-size:13px; line-height:1.55; }
+    .candidate-list { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .candidate-chip { display:inline-flex; gap:6px; align-items:center; border:1px solid var(--line); border-radius:999px; padding:6px 9px; background:#f8fafc; font-size:12px; font-weight:900; }
+    .candidate-chip span { color:var(--muted); font-weight:700; }
     .label { color:var(--muted); font-size:12px; font-weight:800; }
     .value { margin-top:8px; font-size:26px; font-weight:900; }
     .hint { margin-top:6px; color:var(--muted); font-size:12px; line-height:1.45; }
@@ -304,7 +397,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     .term strong { display:block; margin-bottom:8px; }
     .term p { margin:0; color:var(--muted); font-size:13px; line-height:1.55; }
     @media (max-width:900px) {
-      .summary,.split,.chart-grid,.etf-cards,.term-grid { grid-template-columns:1fr; }
+      .summary,.daily,.split,.chart-grid,.etf-cards,.term-grid { grid-template-columns:1fr; }
       .topbar { flex-direction:column; align-items:flex-start; }
     }
   </style>
@@ -319,11 +412,13 @@ HTML_TEMPLATE = r"""<!doctype html>
       <div class="actions">
         <span class="tip" tabindex="0" data-tip="화면에 보이는 내용을 텍스트로 저장한 백업본입니다. CSV/HTML이 불편할 때 기록, 복사, 공유, 검산 용도로 씁니다. 평소에는 대시보드만 봐도 됩니다.">리포트 원문</span>
         <a class="button" href="report.md">열기</a>
+        <button class="button" id="installApp" hidden>앱 설치</button>
       </div>
     </div>
   </header>
   <main>
     <div class="notice">투자 추천이 아니라 후보 발굴과 리스크 점검용 화면입니다. 자동 주문은 없고, 실제 매매 전에는 반드시 본인이 검토해야 합니다.</div>
+    <section class="card daily" id="dailyAdvice"></section>
     <div class="grid summary">
       <div class="card"><div class="label" id="labelRegime"></div><div class="value" id="regime"></div><div class="hint" id="regimeHint"></div></div>
       <div class="card"><div class="label" id="labelSignal"></div><div class="value" id="signal"></div><div class="hint" id="signalHint"></div></div>
@@ -508,6 +603,26 @@ HTML_TEMPLATE = r"""<!doctype html>
           <p><strong>메모:</strong> ${row.note}</p>
         </div>`).join("");
     }
+    function renderDailyAdvice() {
+      const advice = DATA.daily_advice || {};
+      const candidates = advice.top_candidates || [];
+      $("dailyAdvice").innerHTML = `
+        <div>
+          <div class="daily-title">
+            <h2>오늘의 행동: ${advice.action || "유지/관찰"}</h2>
+            <span class="mode-badge ${advice.tone || ""}">${advice.data_mode || "장 마감 종가 기준"}</span>
+          </div>
+          <p class="daily-copy">${advice.summary || "오늘은 기존 포트폴리오를 유지하고 다음 갱신을 기다립니다."}</p>
+          <div class="candidate-list">
+            ${candidates.length ? candidates.map(item => `<span class="candidate-chip">${item.ticker}<span>${item.sector} · ${num(item.score, 1)}점</span></span>`).join("") : `<span class="candidate-chip">신규 강한 후보 없음</span>`}
+          </div>
+        </div>
+        <div>
+          <div class="label">갱신 방식</div>
+          <div class="value" style="font-size:18px">${advice.refresh_rule || "미국장 거래일 다음날 07:30 KST 자동 갱신"}</div>
+          <ol class="steps">${(advice.steps || []).map(step => `<li>${step}</li>`).join("")}</ol>
+        </div>`;
+    }
     function showTooltip(target) {
       const tooltip = $("globalTooltip");
       const text = target.dataset.tip;
@@ -569,6 +684,27 @@ HTML_TEMPLATE = r"""<!doctype html>
       }));
       renderStockChart();
     }
+    function setupInstallPrompt() {
+      const installButton = $("installApp");
+      let deferredPrompt = null;
+      window.addEventListener("beforeinstallprompt", event => {
+        event.preventDefault();
+        deferredPrompt = event;
+        installButton.hidden = false;
+      });
+      installButton.addEventListener("click", async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        installButton.hidden = true;
+      });
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("service-worker.js").catch(() => {});
+      }
+    }
+    renderDailyAdvice();
+    setupInstallPrompt();
     $("labelRegime").innerHTML = tip("시장 모드", HELP.regime);
     $("labelSignal").innerHTML = tip("ETF 코어 신호", HELP.signal);
     $("labelEtfCagr").innerHTML = tip("ETF CAGR", HELP.etfCagr);
@@ -581,7 +717,7 @@ HTML_TEMPLATE = r"""<!doctype html>
     $("etfCagr").textContent = pct(DATA.etf_metrics.cagr_pct);
     $("rotSharpe").textContent = num(DATA.rotation_metrics.sharpe, 3);
     const qqqAlt = DATA.signal.current_signal === "QQQ" ? " 실제 매수는 QQQ뿐 아니라 QQQM도 비교할 수 있습니다." : "";
-    $("currentRead").textContent = `현재 해석: 시장 모드는 ${DATA.regime.regime}, ETF 코어 신호는 ${DATA.signal.current_signal}입니다. 즉 현재 모델은 위험자산을 열어두되, ETF 코어를 중심으로 후보를 검토하라는 상태입니다.${qqqAlt} GOOGL 같은 상위 종목은 후보일 뿐이며, 개별 뉴스와 실적 확인 없이 바로 매수한다는 뜻은 아닙니다.`;
+    $("currentRead").textContent = `현재 해석: 시장 모드는 ${DATA.regime.regime}, ETF 코어 신호는 ${DATA.signal.current_signal}입니다. 이 화면은 실시간 호가가 아니라 ${DATA.signal.as_of} 장 마감 종가로 계산한 일일 판단입니다.${qqqAlt} 상위 종목은 후보일 뿐이며, 개별 뉴스와 실적 확인 없이 바로 매수한다는 뜻은 아닙니다.`;
     $("regimeFacts").innerHTML = [
       [tip("SPY 200일선 위", HELP.spy200), DATA.regime.market_above_200d === true ? "예" : DATA.regime.market_above_200d === false ? "아니오" : "없음"],
       [tip("QQQ 200일선 위", HELP.qqq200), DATA.regime.growth_above_200d === true ? "예" : DATA.regime.growth_above_200d === false ? "아니오" : "없음"],
@@ -647,6 +783,7 @@ def main() -> int:
     html = HTML_TEMPLATE.replace("__DATA__", json.dumps(payload, ensure_ascii=False))
     out = paths.output / "dashboard.html"
     out.write_text(html, encoding="utf-8-sig")
+    write_static_assets(paths)
     print(out.resolve())
     return 0
 
