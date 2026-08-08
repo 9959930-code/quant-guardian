@@ -2,7 +2,7 @@
 
 - 문서 버전: `0.3`
 - 작성 기준일: `2026-08-09`
-- 상태: **TECHNICAL BASELINE — 반감기 필수 / 최신 로컬 GitHub 기준선 확인 전**
+- 상태: **TECHNICAL BASELINE — ETF 기준선 확정 / BTC 구현 전**
 - 대상 저장소: `9959930-code/quant-guardian`
 - 관련 문서: `PRD_BTC_EXTENSION_v0.3.md`, `BTC_STRATEGY_RESEARCH_DESIGN_v0.3.md`, `ACCEPTANCE_TESTS_BTC_EXTENSION_v0.3.md`, `BTC_SHADOW_MODE_PLAN_v0.3.md`, `SOURCES_BTC_STRATEGY_v0.3.md`
 
@@ -15,19 +15,16 @@
 
 ### 1.1 GitHub 기준선
 
-현재 연결된 원격 `main`은 사용자가 설명한 최신 로컬 완성본보다 오래된 상태다. 구현 전 다음 순서를 지킨다.
+최신 ETF 로컬 완성본은 PR #2를 통해 `main`에 병합됐다.
 
 ```text
-1. 최신 로컬 코드를 안전한 동기화 브랜치에 push
-2. 기존 ETF 화면·텔레그램·테스트 결과를 기준선으로 저장
-3. 기준 commit SHA를 DECISIONS 문서에 기록
-4. feature/btc-extension-v1 브랜치 생성
-5. 데이터 → 연구 → 신호 → 화면 → 알림 순으로 구현
-6. shadow 모드 배포
-7. 사용자 승인 전 live 모드 금지
+baseline branch: main
+baseline commit: cd00bcf953b80cb2e900d685f504da19192f4e24
+baseline tests: 2026-08-09, unittest 6개 통과
+next branch: agent/btc-extension-v1
 ```
 
-강제 push나 최신 로컬 코드의 덮어쓰기를 금지한다.
+BTC 구현은 별도 브랜치에서 데이터 → 연구 → 신호 → 화면 → 알림 순으로 진행한다. 강제 push나 기준선 덮어쓰기를 금지하고 사용자 승인 전 live advisory 전환을 금지한다.
 
 ### 1.2 호환 원칙
 
@@ -277,22 +274,27 @@ class HalvingContext:
 
 ```text
 1차: mempool.space block tip API
-2차: Bitcoin Core RPC getblockcount 또는 승인된 독립 공급자
+2차: Blockstream Esplora `/blocks/tip/height`
+3차 선택: 사용자 운영 Bitcoin Core RPC `getblockcount`
 ```
 
 두 소스가 모두 있으면 높이 차이가 허용범위를 넘는지 검사한다. 한 소스만 정상일 때는 경고와 함께 계산할 수 있으나, 연속 실패 또는 비정상 역행 시 `DATA_ERROR`로 전환한다.
 
 ### 5.3 온체인
 
-초기 후보는 Coin Metrics Community API에서 실제 무료 가용성을 확인한 항목만 운영판에 넣는다.
+초기 후보는 Coin Metrics Community API에서 실제 무료 가용성을 확인한 항목만 운영판에 넣는다. 2026-08-09 `catalog-v2/asset-metrics?assets=btc` 확인 결과의 무료 baseline은 다음과 같다.
 
 ```text
-우선 후보: realized cap/price, MVRV, NUPL, SOPR, miner revenue,
-           hashrate, fees, transfer activity
-조건부 후보: exchange flows, holder-segment metrics, open interest
+직접 제공: CapMVRVCur, HashRate, FeeTotNtv, IssTotNtv, IssTotUSD,
+           PriceUSD, CapMrktCurUSD, SplyCur
+파생 가능: Realized Cap = CapMrktCurUSD / CapMVRVCur
+           Realized Price = Realized Cap / SplyCur
+           NUPL = 1 - 1 / CapMVRVCur
+           Miner revenue = IssTotUSD + FeeTotNtv × PriceUSD
+기본 비활성: SOPR, MVRV Z 및 현재 무료 catalog에서 확인되지 않은 값
 ```
 
-유료 지표가 필요하면 무료 대체식이 정확히 재현 가능한지 검토하고, 불가능하면 `optional_paid`로 분류한다. 무단 스크래핑으로 대체하지 않는다.
+MVRV, 파생 Realized Price, 파생 NUPL은 같은 원자료 family이므로 독립 증거 세 개로 세지 않는다. 유료 지표가 필요하면 무료 대체식이 정확히 재현 가능한지 검토하고, 불가능하면 `optional_paid`로 분류한다. 무단 스크래핑으로 대체하지 않는다.
 
 ### 5.4 데이터 등급
 
@@ -304,7 +306,10 @@ CRITICAL
 
 CORE
 - 장기 추세·모멘텀 계산 가능 OHLCV
-- 승인된 핵심 온체인 지표 최소 개수
+
+ONCHAIN_ENHANCEMENT
+- 현재 catalog에서 확인된 온체인 지표
+- 채택 전략별 승인된 필수 목록
 
 OPTIONAL
 - 파생, 거시, ETF 흐름, 뉴스·감성
@@ -329,15 +334,16 @@ KST 마감: 오전 09:00
 
 ### 6.2 GitHub Actions
 
-권장 구조:
+무료 운영판은 Pages를 덮어쓰는 두 예약 작업보다 하나의 일일 빌드·배포 workflow를 우선한다.
 
 ```text
-ETF workflow: 기존 평일 스케줄 유지 또는 최신 로컬 구조에 맞춤
-BTC workflow: 매일 UTC 00:17 (KST 09:17), 주말 포함
-Pages deploy: 전체 사이트를 원자적으로 재생성
+매일 UTC 00:17 (KST 09:17), 주말 포함
+BTC: 매일 확정 일봉 갱신
+ETF: 미국장 새 확정 일봉이 있을 때 갱신, 아니면 마지막 정상 캐시 유지
+Pages: ETF + BTC 전체 사이트를 한 artifact로 원자적 배포
 ```
 
-BTC 주말 실행 시 ETF는 마지막 정상 캐시를 사용한다. 두 워크플로가 Pages를 동시에 배포하지 않도록 동일 concurrency group과 적절한 시간간격을 둔다.
+GitHub의 `schedule`은 기본 브랜치에서만 실행된다. 기능 브랜치에서는 `workflow_dispatch`로 검증하고, 30일 Shadow 예약운영은 `run_mode = "shadow"`, 자동주문 없음, BTC 실패 격리를 확인한 뒤 코드를 `main`에 병합해야 시작할 수 있다. 공개 저장소에 60일간 저장소 활동이 없으면 예약 workflow가 자동 비활성화될 수 있으므로 Actions 상태와 마지막 정상 생성시각을 화면에 표시한다.
 
 ### 6.3 재시도
 
@@ -903,7 +909,7 @@ risk_mdd_hard_limit = -0.50
 preferred_mdd_range = [-0.45, -0.35]
 ```
 
-운영판에는 후보 그리드가 아니라 승인된 한 전략버전만 들어간다.
+MDD는 음수 수익률로 저장하며 후보 통과식은 `mdd >= risk_mdd_hard_limit`이다. 운영판에는 후보 그리드가 아니라 승인된 한 전략버전만 들어간다.
 
 ---
 
@@ -1010,9 +1016,9 @@ ETF 회귀
 
 ### Phase 0 — 기준선
 
-- 최신 로컬 GitHub push 및 commit SHA 확정
-- ETF 회귀 픽스처 확보
-- 문서 병합 위치 확정
+- 완료: 최신 로컬 GitHub 기준선 `cd00bcf953b80cb2e900d685f504da19192f4e24`
+- 완료: ETF 회귀테스트 6개 통과
+- 진행: BTC 문서 검토 수정 후 병합
 
 ### Phase 1 — 데이터·반감기
 

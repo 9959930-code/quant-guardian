@@ -20,7 +20,7 @@
 | DEC-BTC-003 | 기본예산 | 초기 표시값 5,000,000원 | 승인 |
 | DEC-BTC-004 | 예산 변경 | 사용자가 사이트에서 예산을 직접 선택·입력·수정 가능 | 승인 |
 | DEC-BTC-005 | 최대비중 | BTC 전용예산 안에서 최대 100% | 승인 |
-| DEC-BTC-006 | 위험한도 | BTC 전용자금 기준 약 -50% MDD를 연구상 최대 허용선으로 사용 | 승인 |
+| DEC-BTC-006 | 위험한도 | BTC 전용자금 기준 MDD 절댓값 50%를 연구상 최대 허용선으로 사용 | 승인 |
 | DEC-BTC-007 | 거래대상 | 업비트 `KRW-BTC` 현물 | 승인 |
 | DEC-BTC-008 | 방향 | 롱온리, 공매도·선물·레버리지 미사용 | 승인 |
 | DEC-BTC-009 | 주문 | 자동주문 금지, 수동 매매 보조 | 승인 |
@@ -249,7 +249,7 @@ block_subsidy_btc = 50 / 2^halving_epoch
 - 거래비용 적용 후 성과가 소멸함
 - 한 반감기 사이클에만 성과가 집중됨
 - 임계값을 조금 바꾸면 결과가 붕괴함
-- MDD가 연구 상한을 지속적으로 초과함
+- MDD가 -50%보다 작아져 최대 낙폭 절댓값이 50%를 초과함
 - 데이터 공급자의 무료·재현 가능한 가용성이 확보되지 않음
 - 30개 확정 일봉 모의운영이 완료되지 않음
 - 기존 ETF 기능에 회귀 오류가 발생함
@@ -262,10 +262,10 @@ block_subsidy_btc = 50 / 2^halving_epoch
 
 ```text
 repository: 9959930-code/quant-guardian
-baseline branch: TBD
-baseline commit SHA: TBD
-latest local tests: TBD
-BTC feature branch: feature/btc-extension-v1 (후보)
+baseline branch: main
+baseline commit SHA: cd00bcf953b80cb2e900d685f504da19192f4e24
+latest local tests: 2026-08-09, unittest 6개 통과
+BTC feature branch: agent/btc-extension-v1 (후보)
 ```
 
-이 값이 없으면 문서 설계와 독립 연구까지만 진행하고 기존 코드 통합은 시작하지 않는다.
+기준선은 확정됐다. BTC 구현은 별도 기능 브랜치에서 시작하고, 기존 ETF 회귀테스트를 먼저 고정한다.

@@ -25,6 +25,13 @@
 - 확인사항: tip height, block-height hash, block details 조회 가능
 - 설계 영향: 운영 중 현재 블록 높이와 반감기 진행률을 계산하는 기본 공급자 후보다.
 
+### Blockstream Esplora HTTP API
+
+- 출처: [Blockstream Esplora API](https://github.com/Blockstream/esplora/blob/master/API.md)
+- 유형: 공식 오픈소스 API 문서와 공개 endpoint
+- 확인사항: `GET /blocks/tip/height`로 최신 블록 높이를 조회할 수 있음
+- 설계 영향: mempool.space와 별도 호스트의 무료 2차 block-tip 공급자로 사용하고, 선택적으로 사용자 Bitcoin Core와도 교차검증한다.
+
 ### 확인 가능한 반감기 경계 블록
 
 - [Block 420000 — 2016-07-09 UTC](https://mempool.space/block/000000000000000002cce816c0ab2c5c269cb081896b7dcb34b8422d6b74ffa1)
@@ -64,9 +71,11 @@
 ### Coin Metrics API
 
 - 출처: [Coin Metrics API conventions](https://docs.coinmetrics.io/api)
+- 가용성 출처: [Coin Metrics API v4 catalog](https://docs.coinmetrics.io/api/v4/)
 - 유형: 공식 데이터 공급자 문서
 - 확인사항: Community API는 비상업적 용도에서 API key 없이 사용할 수 있는 데이터가 있으며 별도 rate limit가 적용됨
-- 설계 영향: 구현 시 지표별 Community 가용성·라이선스·지연을 다시 확인한다. 유료지표를 무료라고 가정하지 않는다.
+- 2026-08-09 BTC catalog 확인: `CapMVRVCur`, `HashRate`, `FeeTotNtv`, `IssTotNtv`, `IssTotUSD`, `PriceUSD`, `CapMrktCurUSD`, `SplyCur` 등은 Community catalog에서 확인됨. `NUPL`, `SOPR`, `CapMVRVZ`는 해당 catalog에서 확인되지 않음.
+- 설계 영향: 구현 시 지표별 Community 가용성·라이선스·지연을 다시 확인한다. 미지원 지표를 무료라고 가정하거나 무단 스크래핑하지 않는다.
 
 ### Realized Cap, MVRV, MVRV Z
 
@@ -75,6 +84,7 @@
 - 설계 영향:
   - Realized Cap은 각 단위가 마지막으로 이동했을 때의 가격을 사용한 비용기준 근사치다.
   - MVRV는 Market Cap / Realized Cap이다.
+  - Community MVRV에서 Realized Price와 NUPL을 파생하면 같은 원자료이므로 하나의 가치 family로만 센다.
   - 고정 임계값과 expanding/cycle-relative percentile을 함께 비교한다.
 
 ### SOPR와 NUPL
@@ -84,6 +94,7 @@
 - 설계 영향:
   - SOPR은 소비된 output의 지출가치/생성가치 비율로 손익실현을 근사한다.
   - NUPL은 시가총액 중 미실현 손익의 비중을 나타낸다.
+  - 현재 Community catalog에서 SOPR은 확인되지 않았으므로 기본 운영 지표가 아니다.
   - 단일 날짜 극단값보다 지속·회복·다른 영역과의 합의를 사용한다.
 
 ### Hash rate와 miner revenue per hash
@@ -174,9 +185,10 @@
 
 ### GitHub Actions schedule 주의사항
 
-- 출처: [GitHub Actions workflow troubleshooting](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows)
+- 출처: [GitHub Actions `schedule` 이벤트](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
 - 유형: 공식 플랫폼 문서
-- 설계 영향: 정각 예약을 피하고 실행지연을 허용하며, 실제 실행시각과 대상 데이터시각을 분리 기록한다.
+- 확인사항: 예약 workflow는 기본 브랜치의 최신 commit에서 실행되며, 공개 저장소는 60일간 활동이 없으면 예약이 자동 비활성화될 수 있다.
+- 설계 영향: 기능 브랜치는 수동 dispatch로 검증하고, Shadow 예약운영은 보호된 설정으로 main에 병합한 뒤 시작한다. 정각 예약을 피하고 마지막 정상 실행시각을 화면에 표시한다.
 
 ---
 

@@ -26,6 +26,7 @@ public_personal_data = false
 
 [btc.risk]
 max_btc_weight = 1.00
+# MDD is stored as a negative return. A candidate passes when mdd >= this limit.
 research_mdd_hard_limit = -0.50
 research_mdd_preferred_low = -0.45
 research_mdd_preferred_high = -0.35
@@ -39,12 +40,29 @@ primary_research_source = "yahoo_btc_usd"
 secondary_usd_source = "independent_spot"
 fx_source = "usdkrw"
 block_height_primary = "mempool_space"
-block_height_secondary = "bitcoin_core_optional"
+block_height_secondary = "blockstream_info"
+block_height_tertiary = "bitcoin_core_optional"
 onchain_source_candidate = "coinmetrics_community"
 require_utc_closed_candle = true
 exclude_incomplete_candle = true
 max_price_source_gap_pct = 2.0
 max_block_height_gap = 3
+
+[btc.data.onchain]
+# Verified against the Coin Metrics Community catalog on 2026-08-09.
+catalog_endpoint = "https://community-api.coinmetrics.io/v4/catalog-v2/asset-metrics"
+required_for_shadow = false
+verified_free_metrics = [
+  "CapMVRVCur",
+  "HashRate",
+  "FeeTotNtv",
+  "IssTotNtv",
+  "IssTotUSD",
+  "PriceUSD",
+  "CapMrktCurUSD",
+  "SplyCur",
+]
+optional_unverified_or_paid_metrics = ["NUPL", "SOPR", "CapMVRVZ"]
 
 [btc.data.staleness_hours]
 upbit_daily = 2.0
@@ -65,9 +83,9 @@ use_progress_sin_cos = true
 # Broad phase boundaries are research candidates.
 [btc.halving.phases]
 halving_transition = [0.00, 0.08]
-post_halving_expansion = [0.08, 0.38]
-late_cycle_risk = [0.38, 0.62]
-contraction_recovery = [0.62, 0.75]
+post_halving_expansion = [0.08, 0.32]
+late_expansion_distribution = [0.32, 0.50]
+contraction_recovery = [0.50, 0.75]
 pre_halving_accumulation = [0.75, 1.00]
 
 [btc.features]
@@ -96,13 +114,14 @@ bollinger_std = 2.0
 
 [btc.features.value]
 rolling_high_windows_days = [365, 730]
-use_realized_price = true
 use_mvrv = true
-use_mvrv_z = true
-use_nupl = true
-use_sopr = true
-use_miner_revenue = true
+derive_realized_price_from_mvrv = true
+derive_nupl_from_mvrv = true
+derive_miner_revenue_from_issuance_and_fees = true
+use_mvrv_z = false
+use_sopr = false
 use_hashrate = true
+count_mvrv_derived_metrics_as_one_evidence_family = true
 use_expanding_percentile = true
 use_cycle_relative_percentile = true
 minimum_percentile_history_days = 730
@@ -121,6 +140,13 @@ compare_all_sell_modes = true
 compare_core_tactical_splits = true
 no_halving_ablation = true
 
+[btc.research.search]
+# Do not multiply every grid below into one full Cartesian search.
+full_cartesian_product = false
+stagewise_family_search = true
+selection_uses_training_folds_only = true
+candidate_count_must_be_recorded = true
+
 [btc.research.objectives]
 terminal_wealth = true
 cagr = true
@@ -136,8 +162,9 @@ maximum_adverse_excursion = true
 [btc.research.costs]
 # Must be replaced with verified current execution assumptions before final backtest.
 fee_bps_candidates = [5.0, 10.0, 20.0]
-slippage_bps_candidates = [0.0, 5.0, 10.0, 25.0]
-execution_delay_days = [1, 2, 3]
+slippage_bps_candidates = [0.0, 5.0, 10.0, 20.0, 50.0]
+# Zero means the next executable open; other values are additional closed-day delays.
+additional_execution_delay_days = [0, 1, 2]
 
 [btc.research.deep_value_grid]
 drawdown_365_pct = [-0.45, -0.50, -0.55, -0.60]
@@ -183,6 +210,7 @@ EXIT = 0.00
 [btc.state_machine]
 minimum_hold_days = 3
 cooldown_days_after_trade = 3
+reentry_cooldown_days_candidates = [10, 20, 30]
 require_independent_evidence = true
 halving_alone_can_transition = false
 data_error_freezes_new_actions = true

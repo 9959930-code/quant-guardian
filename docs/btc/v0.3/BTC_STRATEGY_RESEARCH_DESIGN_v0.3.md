@@ -127,7 +127,9 @@ hashrate/difficulty
 
 ### 4.3 온체인 데이터
 
-최초 후보:
+무료 운영 baseline은 2026-08-09 Coin Metrics Community 카탈로그에서 BTC 일봉 제공이 확인된 `CapMVRVCur`, `HashRate`, `FeeTotNtv`, `IssTotNtv`, `IssTotUSD`, `PriceUSD`, `CapMrktCurUSD`, `SplyCur`로 제한한다.
+
+연구 후보:
 
 ```text
 Realized Cap / Realized Price
@@ -139,6 +141,10 @@ Hashrate / difficulty / miner revenue per hash
 Fees / transfer value / active supply 후보
 Exchange flows — 가용성·방법론 확인 후
 ```
+
+- Realized Price와 NUPL을 MVRV에서 파생할 경우 세 값은 하나의 온체인 가치 family로만 센다.
+- MVRV Z, SOPR처럼 Community 카탈로그에서 확인되지 않은 지표는 기본 비활성화한다.
+- 공급자별 가용 범위는 바뀔 수 있으므로 매 실행 전 catalog snapshot과 라이선스를 기록한다.
 
 ### 4.4 거시·파생 데이터
 
@@ -306,6 +312,8 @@ cycle/supply             필수 1표
 local market             보정 1표
 ```
 
+특히 `MVRV`, `Realized Price = (Market Cap / MVRV) / Supply`, `NUPL = 1 - 1 / MVRV`처럼 대수적으로 연결된 값은 독립 증거가 아니다. 같은 원자료에서 파생한 세 값이 매수 확인 수를 세 배로 늘리지 못하게 한다.
+
 ---
 
 ## 7. 후보 전략 `QG-BTC-CVT`
@@ -392,6 +400,8 @@ NUPL percentile: 10, 20, 30%
 required_domains: 3, 4
 persistence: 1, 3, 5일
 ```
+
+이 목록 전체의 완전 카테시안 곱은 실행하지 않는다. 고정 baseline에서 지표 family를 한 번에 하나씩 탐색하고, train fold에서만 남긴 후보를 walk-forward와 cycle holdout으로 넘긴다. 실행한 후보 수와 탈락 단계를 manifest에 기록한다.
 
 #### 행동
 
@@ -736,7 +746,8 @@ Train 2012~2024 → Test 2025~현재/Shadow
 ```text
 Upbit 거래수수료 최신값
 slippage 0, 5, 10, 20, 50 bps
-signal delay 0, 1, 2일
+기본 체결은 다음 실행가능 일봉 시가
+additional delay 0, 1, 2개 확정 일봉
 market gap/price shock
 최소주문 5,000원
 ```
@@ -793,7 +804,7 @@ data dependency count
 ### 16.4 채택 우선순위
 
 1. 미래참조·데이터 오류 없는 전략
-2. 연구상 MDD -50% 상한 통과
+2. 음수 수익률 표기에서 `MDD >= -50%`, 즉 최대 낙폭 절댓값 50% 이내
 3. 사이클별 치명적 실패가 적은 전략
 4. 인접 파라미터에서도 유사한 전략
 5. 비용·지연에도 논리가 유지되는 전략
@@ -809,7 +820,7 @@ CAGR이 가장 높은 한 전략을 자동 선택하지 않는다.
 ### 17.1 성공 후보
 
 ```text
-MDD <= 약 -50%
+MDD >= -50% (최대 낙폭 절댓값 <= 50%)
 preferred MDD -35~-45% 후보 존재
 2개 이상 독립 검증구간에서 Calmar 개선
 단순보유 대비 상승참여율이 과도하게 낮지 않음
@@ -946,7 +957,7 @@ research_report.md
 3. 기술 only / 온체인 only / 통합 비교
 4. 매도정책 3종 비교
 5. core 비중 후보 비교
-6. MDD -50% 상한과 preferred 범위 통과 여부
+6. MDD가 -50% 이상인지와 preferred -45~-35% 범위 통과 여부
 7. 파라미터 주변 안정성
 8. 사이클별 거래내역과 실패 사례
 9. 현재 최신 신호를 각 후보전략이 어떻게 해석하는지
