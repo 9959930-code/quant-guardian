@@ -54,6 +54,18 @@ SPY와 QQQ의 종합 상태를 이용해 주식형 ETF 목표 비중을 정합�
 - 마감 종가 기반이므로 장중 실시간 가격은 반영하지 않음
 - 신호는 매일 계산하지만 잦은 매매를 줄이기 위해 주문 판단은 주 1회 이내로 모으는 방식
 
+## BTC 확장 진행 상태
+
+BTC 기능은 아직 매수·매도 전략이 아니라 **1단계 데이터·반감기 검증 모드**입니다. 업비트 `KRW-BTC` 확정 일봉, Yahoo `BTC-USD`·USD/KRW, mempool.space·Blockstream 블록 높이, Coin Metrics Community 무료 카탈로그를 점검합니다. 자동주문은 없고 기존 ETF 웹 화면과 텔레그램에는 아직 연결하지 않았습니다.
+
+최신 무료 데이터를 점검하려면 다음 명령을 사용합니다.
+
+```powershell
+python btc_guardian.py data-report --refresh
+```
+
+결과는 `output/btc_data_report.json`에 저장됩니다. 매수·보유·축소·매도 규칙은 워크포워드 검증과 모의운영을 통과한 뒤 별도 승인해야 합니다.
+
 ## 텔레그램 알림
 
 GitHub 저장소의 `Settings -> Secrets and variables -> Actions`에 아래 두 시크릿이 있으면 알림을 보냅니다.
@@ -117,6 +129,7 @@ python -m unittest discover -s tests
 ## 주요 파일
 
 - `quant_guardian.py`: 데이터, 보조지표, 판단, 목표 비중, 백테스트
+- `btc_guardian.py`: BTC 무료 데이터 품질과 반감기 진행률 검증
 - `build_dashboard.py`: 한글 웹 대시보드와 `daily.json` 생성
 - `telegram_notify.py`: 한글 텔레그램 알림
 - `config.toml`: 대상 ETF, 비중, 위험 제한
