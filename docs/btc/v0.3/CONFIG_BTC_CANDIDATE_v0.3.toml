@@ -1,0 +1,222 @@
+# Quant Guardian BTC research/shadow candidate configuration
+# Version 0.3 — NOT LIVE-APPROVED
+
+[btc]
+enabled = true
+asset = "BTC"
+execution_market = "KRW-BTC"
+execution_venue = "upbit"
+position_mode = "long_only"
+auto_order = false
+run_mode = "shadow"
+strategy_name = "QG-BTC Cycle-Value-Trend Guard"
+strategy_version = "research-0.3"
+base_timezone = "UTC"
+display_timezone = "Asia/Seoul"
+daily_close_hour_kst = 9
+scheduled_run_minute_kst = 17
+
+[btc.personal]
+default_budget_krw = 5000000
+budget_presets_krw = [1000000, 3000000, 5000000, 10000000]
+budget_mode_default = "fixed"
+budget_modes = ["fixed", "current_nav", "scheduled_contribution"]
+local_storage_key = "quant_guardian_btc_personal_v1"
+public_personal_data = false
+
+[btc.risk]
+max_btc_weight = 1.00
+research_mdd_hard_limit = -0.50
+research_mdd_preferred_low = -0.45
+research_mdd_preferred_high = -0.35
+negative_cash_allowed = false
+leverage_allowed = false
+short_allowed = false
+
+[btc.data]
+primary_execution_source = "upbit_krw_btc"
+primary_research_source = "yahoo_btc_usd"
+secondary_usd_source = "independent_spot"
+fx_source = "usdkrw"
+block_height_primary = "mempool_space"
+block_height_secondary = "bitcoin_core_optional"
+onchain_source_candidate = "coinmetrics_community"
+require_utc_closed_candle = true
+exclude_incomplete_candle = true
+max_price_source_gap_pct = 2.0
+max_block_height_gap = 3
+
+[btc.data.staleness_hours]
+upbit_daily = 2.0
+usd_daily = 6.0
+block_height = 1.0
+fx_daily = 36.0
+onchain_daily = 72.0
+
+[btc.halving]
+required_for_deployable_strategy = true
+interval_blocks = 210000
+genesis_subsidy_btc = 50.0
+estimated_date_is_signal_input = false
+no_halving_model_deployable = false
+use_continuous_progress = true
+use_progress_sin_cos = true
+
+# Broad phase boundaries are research candidates.
+[btc.halving.phases]
+halving_transition = [0.00, 0.08]
+post_halving_expansion = [0.08, 0.38]
+late_cycle_risk = [0.38, 0.62]
+contraction_recovery = [0.62, 0.75]
+pre_halving_accumulation = [0.75, 1.00]
+
+[btc.features]
+price_trend = true
+value_capitulation = true
+momentum_timing = true
+overheat_distribution = true
+krw_usd_crosscheck = true
+onchain = true
+macro_optional = false
+derivatives_optional = false
+
+[btc.features.moving_averages]
+daily = [20, 50, 100, 200, 240]
+weekly = [20, 40, 100, 200]
+
+[btc.features.momentum]
+rsi_windows = [14]
+ppo_fast = 12
+ppo_slow = 26
+ppo_signal = 9
+return_windows_days = [14, 30, 90, 180, 365]
+atr_window = 14
+bollinger_window = 20
+bollinger_std = 2.0
+
+[btc.features.value]
+rolling_high_windows_days = [365, 730]
+use_realized_price = true
+use_mvrv = true
+use_mvrv_z = true
+use_nupl = true
+use_sopr = true
+use_miner_revenue = true
+use_hashrate = true
+use_expanding_percentile = true
+use_cycle_relative_percentile = true
+minimum_percentile_history_days = 730
+
+[btc.research]
+start_date_primary = "2016-01-01"
+start_date_extended = "2012-01-01"
+walk_forward = true
+leave_one_cycle_out = true
+purge_days = 7
+embargo_days = 7
+bootstrap = true
+compare_fixed_and_percentile_thresholds = true
+compare_all_data_modes = true
+compare_all_sell_modes = true
+compare_core_tactical_splits = true
+no_halving_ablation = true
+
+[btc.research.objectives]
+terminal_wealth = true
+cagr = true
+calmar = true
+mdd_constrained_cagr = true
+buy_hold_comparison = true
+sharpe = true
+sortino = true
+turnover = true
+worst_trade = true
+maximum_adverse_excursion = true
+
+[btc.research.costs]
+# Must be replaced with verified current execution assumptions before final backtest.
+fee_bps_candidates = [5.0, 10.0, 20.0]
+slippage_bps_candidates = [0.0, 5.0, 10.0, 25.0]
+execution_delay_days = [1, 2, 3]
+
+[btc.research.deep_value_grid]
+drawdown_365_pct = [-0.45, -0.50, -0.55, -0.60]
+close_to_sma200 = [0.70, 0.75, 0.80, 0.85, 0.90]
+rsi14_max = [20, 25, 30, 35]
+return_30d_max = [-0.10, -0.15, -0.20, -0.25]
+value_percentile_max = [0.10, 0.20, 0.30]
+minimum_independent_domains = [3, 4]
+persistence_days = [1, 2, 3, 5]
+
+[btc.research.recovery_grid]
+sma_reclaim_windows = [20, 50, 100, 200]
+reclaim_persistence_days = [1, 2, 3, 5, 7]
+confirmation_windows_days = [30, 45, 60, 90]
+
+[btc.research.overheat_grid]
+value_percentile_min = [0.70, 0.80, 0.90, 0.95]
+weekly_rsi_min = [65, 70, 75, 80]
+return_90d_min = [0.50, 0.75, 1.00, 1.50]
+minimum_independent_domains = [2, 3]
+persistence_days = [2, 3, 5, 7, 14]
+
+[btc.research.core_tactical]
+core_weight_candidates = [0.00, 0.25, 0.50, 0.75, 1.00]
+tactical_weight_candidates = [1.00, 0.75, 0.50, 0.25, 0.00]
+starting_candidate_core = 0.25
+starting_candidate_tactical = 0.75
+
+# Candidate state weights; not approved for live use.
+[btc.state_weights]
+WAIT = 0.00
+WATCH = 0.00
+ACCUMULATE_1 = 0.20
+ACCUMULATE_2 = 0.40
+CONFIRM_BUY = 0.60
+TREND_HOLD = 0.80
+FULL_HOLD = 1.00
+REDUCE_1 = 0.75
+REDUCE_2 = 0.50
+CORE_ONLY = 0.25
+EXIT = 0.00
+
+[btc.state_machine]
+minimum_hold_days = 3
+cooldown_days_after_trade = 3
+require_independent_evidence = true
+halving_alone_can_transition = false
+data_error_freezes_new_actions = true
+data_error_auto_liquidates = false
+
+[btc.alerts]
+daily_summary = true
+state_change_detail = true
+data_error = true
+data_recovery = true
+send_time_kst = "09:17"
+telegram_budget_amount_enabled = false
+telegram_budget_env = "BTC_BUDGET_KRW"
+deduplicate_by_signal_id = true
+shadow_prefix_required = true
+
+[btc.shadow]
+required = true
+closed_daily_candles = 30
+normalized_starting_capital = 100.0
+default_example_budget_krw = 5000000
+auto_promote_to_live = false
+
+[btc.charts]
+candles = true
+daily_moving_averages = true
+weekly_moving_averages = true
+halving_markers = true
+cycle_shading = true
+state_markers = true
+rsi_ppo = true
+drawdown_atr_volatility = true
+onchain_value = true
+miner_metrics = true
+kimchi_premium = true
+strategy_vs_buy_hold = true
+strategy_drawdown = true
