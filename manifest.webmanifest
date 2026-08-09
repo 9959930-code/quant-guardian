@@ -1,12 +1,12 @@
 {
-  "name": "Quant Guardian Daily",
+  "name": "Quant Guardian 지수 타이밍",
   "short_name": "Quant Guardian",
-  "description": "Daily close-based quant dashboard for ETF signals, stock candidates, and portfolio risk checks.",
+  "description": "미국 지수 ETF의 매수·보유·축소 시점과 목표 비중을 보여주는 종가 기반 퀀트 대시보드",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f4f6f9",
-  "theme_color": "#2563eb",
+  "theme_color": "#176b5b",
   "icons": [
     {
       "src": "icon.svg",

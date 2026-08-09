@@ -1,4 +1,4 @@
-const CACHE_NAME = "quant-guardian-daily-v1";
+const CACHE_NAME = "quant-guardian-index-v2";
 const CORE_ASSETS = [
   "./",
   "./index.html",
