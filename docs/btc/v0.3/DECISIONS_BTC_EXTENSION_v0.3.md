@@ -263,7 +263,7 @@ block_subsidy_btc = 50 / 2^halving_epoch
 ```text
 repository: 9959930-code/quant-guardian
 baseline branch: main
-baseline commit SHA: cd00bcf953b80cb2e900d685f504da19192f4e24
+baseline commit SHA: b0cecb0ef7e8e6678de9ebc34944589d9332cb54
 latest local tests: 2026-08-09, unittest 6개 통과
 BTC feature branch: agent/btc-extension-v1 (후보)
 ```

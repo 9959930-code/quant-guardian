@@ -13,7 +13,7 @@
 
 다음을 모두 충족해야 Shadow day 1을 시작한다.
 
-- 최신 ETF 기준 commit `cd00bcf953b80cb2e900d685f504da19192f4e24` 기록
+- 최신 ETF 기준 commit `b0cecb0ef7e8e6678de9ebc34944589d9332cb54` 기록
 - 기존 ETF 테스트 통과
 - BTC 단위테스트·통합테스트 통과
 - Upbit·USD 가격·블록 높이 데이터 정상
