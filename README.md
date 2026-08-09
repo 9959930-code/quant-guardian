@@ -56,7 +56,7 @@ SPY와 QQQ의 종합 상태를 이용해 주식형 ETF 목표 비중을 정합�
 
 ## BTC 확장 진행 상태
 
-BTC 기능은 아직 매수·매도 전략이 아니라 **1단계 데이터·반감기 검증 모드**입니다. 업비트 `KRW-BTC` 확정 일봉, Yahoo `BTC-USD`·USD/KRW, mempool.space·Blockstream 블록 높이, Coin Metrics Community 무료 카탈로그를 점검합니다. 자동주문은 없고 기존 ETF 웹 화면과 텔레그램에는 아직 연결하지 않았습니다.
+BTC 기능은 **2단계 연구 모드**입니다. 업비트 `KRW-BTC` 확정 일봉, Yahoo `BTC-USD`·USD/KRW, mempool.space·Blockstream 블록 높이, Coin Metrics Community 무료 온체인 이력으로 반감기·가치·추세 상태 머신과 비교 백테스트를 계산합니다. 자동주문은 없고 기존 ETF 웹 화면과 텔레그램에는 아직 연결하지 않았습니다.
 
 최신 무료 데이터를 점검하려면 다음 명령을 사용합니다.
 
@@ -65,6 +65,16 @@ python btc_guardian.py data-report --refresh
 ```
 
 결과는 `output/btc_data_report.json`에 저장됩니다. 매수·보유·축소·매도 규칙은 워크포워드 검증과 모의운영을 통과한 뒤 별도 승인해야 합니다.
+
+BTC 연구 보고서를 최신 데이터로 다시 만들려면 다음 명령을 사용합니다.
+
+```powershell
+python btc_research.py run --refresh
+```
+
+캐시된 데이터로 재현할 때는 `--refresh`를 빼면 됩니다. 보고서는 `output/btc_research_report.md`에 생성되며 후보·벤치마크·워크포워드·사이클·비용/지연·인접 파라미터 CSV도 함께 저장됩니다.
+
+현재 고정 기준안은 MDD -50% 연구 경계를 통과하지 못했습니다. 약세장 재진입 비중을 제한한 후보는 경계를 통과했지만, 2021~2022 하락을 본 뒤 만든 사후 진단 후보이므로 실전 선택에서 제외되어 있습니다. 웹과 텔레그램에 BTC 매매문구를 추가하기 전에 extended USD 검증, 새 데이터 전향검증, 사용자 승인과 30개 확정 일봉 Shadow가 필요합니다.
 
 ## 텔레그램 알림
 
@@ -130,6 +140,7 @@ python -m unittest discover -s tests
 
 - `quant_guardian.py`: 데이터, 보조지표, 판단, 목표 비중, 백테스트
 - `btc_guardian.py`: BTC 무료 데이터 품질과 반감기 진행률 검증
+- `btc_research.py`: BTC feature, 상태 머신, 가상체결, 후보·강건성 연구 보고서
 - `build_dashboard.py`: 한글 웹 대시보드와 `daily.json` 생성
 - `telegram_notify.py`: 한글 텔레그램 알림
 - `config.toml`: 대상 ETF, 비중, 위험 제한
