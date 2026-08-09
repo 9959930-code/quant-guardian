@@ -10,7 +10,7 @@ ETF 기준선: main / cd00bcf953b80cb2e900d685f504da19192f4e24
 반감기 필수: 승인
 사용자 선택형 예산: 승인
 비중+수익률 표시: 승인
-후보전략: 연구 전
+후보전략: Phase 2 1차 연구 완료, 실전 미승인
 최종 임계값·비중: 미승인
 실전 사용: 미승인
 자동주문: 금지
@@ -29,6 +29,7 @@ ETF 기준선: main / cd00bcf953b80cb2e900d685f504da19192f4e24
 | `ACCEPTANCE_TESTS_BTC_EXTENSION_v0.3.md` | 구현 완료를 판단할 검수 시나리오 |
 | `CONFIG_BTC_CANDIDATE_v0.3.toml` | 연구·Shadow용 후보 설정, live 미승인 |
 | `SOURCES_BTC_STRATEGY_v0.3.md` | 공식 문서·논문 근거와 설계 영향 |
+| `BTC_PHASE2_RESEARCH_RESULT_2026-08-09.md` | 실제 구현·백테스트 결과와 승인 보류 사유 |
 
 ## 핵심 구조
 
@@ -63,9 +64,9 @@ BTC 설명가능 상태 머신           신규
 ```text
 1. 완료 — 최신 ETF 기준선 `cd00bcf` 확정
 2. 완료 — 기존 ETF 회귀테스트 6개 통과
-3. 검토 수정된 문서 병합
-4. 데이터·반감기·feature 모듈 구현
-5. 비교 백테스트와 연구 보고서 생성
+3. 완료 — 검토 수정된 문서 병합
+4. 완료 — 데이터·반감기·feature 모듈 구현
+5. 완료 — 비교 백테스트와 연구 보고서 생성
 6. 후보전략 사용자 승인
 7. 대시보드·개인예산·Telegram 구현
 8. 30개 확정 일봉 Shadow
@@ -73,4 +74,4 @@ BTC 설명가능 상태 머신           신규
 10. live advisory 배포
 ```
 
-BTC 구현은 `agent/btc-extension-v1` 별도 브랜치에서 시작하며 기존 ETF 기능을 회귀테스트로 보호한다.
+Phase 2 구현은 `agent/btc-research-v1` 브랜치에서 진행하며 기존 ETF 기능을 회귀테스트로 보호한다. 현재는 승인할 전략이 없으므로 6단계에서 멈추고 extended USD와 전향검증을 이어간다.

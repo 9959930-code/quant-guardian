@@ -84,3 +84,14 @@ coinmetrics_required_metrics = [
   "CapMrktCurUSD",
   "SplyCur",
 ]
+
+[btc.research_runtime]
+strategy_version = "btc-research-baseline-0.2"
+coinmetrics_start_date = "2009-01-03"
+onchain_lag_days = 2
+percentile_min_periods = 730
+minimum_train_days = 730
+# Upbit Strategy Toolkit's KRW example is 0.05%; recheck before any approved live use.
+fee_bps = 5.0
+# Conservative fixed research assumption, not a quoted live spread.
+slippage_bps = 10.0
