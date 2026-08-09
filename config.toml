@@ -61,3 +61,26 @@ equity = 0.00
 safety = 0.80
 gold = 0.10
 bond = 0.10
+
+[btc]
+enabled = true
+run_mode = "shadow"
+auto_order = false
+execution_market = "KRW-BTC"
+
+[btc.data]
+upbit_start_date = "2017-09-25"
+usd_symbol = "BTC-USD"
+fx_symbol = "KRW=X"
+max_block_height_gap = 3
+block_staleness_hours = 1.0
+coinmetrics_required_metrics = [
+  "CapMVRVCur",
+  "HashRate",
+  "FeeTotNtv",
+  "IssTotNtv",
+  "IssTotUSD",
+  "PriceUSD",
+  "CapMrktCurUSD",
+  "SplyCur",
+]
