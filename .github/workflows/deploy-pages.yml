@@ -5,6 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      send_telegram:
+        description: "Send the Telegram notification after this manual deployment"
+        required: false
+        default: false
+        type: boolean
   schedule:
     # 07:30 KST on the next Korean morning after each regular US trading day.
     - cron: "30 22 * * 1-5"
@@ -73,6 +79,7 @@ jobs:
         uses: actions/deploy-pages@v5
 
       - name: Notify Telegram
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.send_telegram)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

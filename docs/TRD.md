@@ -116,6 +116,8 @@ exit         0%
 
 - GitHub Actions 일정: 평일 22:30 UTC, 한국 시간 다음 날 07:30
 - 순서: 테스트 → 최신 데이터 → HTML/JSON/CSV 생성 → Pages 배포 → Telegram 전송
+- `main` 코드 푸시는 사이트만 배포하고 Telegram은 보내지 않는다.
+- 수동 배포는 `send_telegram`을 선택한 경우에만 Telegram을 보낸다.
 - 필수 알림 시크릿: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
 - 선택 알림 시크릿: `PORTFOLIO_VALUE_KRW`
 
