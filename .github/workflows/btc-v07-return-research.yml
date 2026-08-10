@@ -1,0 +1,92 @@
+name: BTC v0.7 Return-First Research
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "btc_return_models.py"
+      - "btc_return_eval.py"
+      - "btc_return_research.py"
+      - "btc_halving_research.py"
+      - "btc_momentum_research.py"
+      - "btc_cycle_research.py"
+      - "btc_research.py"
+      - "btc_guardian.py"
+      - "config.toml"
+      - "tests/test_btc_return_research.py"
+      - "docs/btc/v0.7/**"
+      - ".github/workflows/btc-v07-return-research.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-v07-return-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile research modules
+        run: >
+          python -m py_compile
+          quant_guardian.py btc_guardian.py btc_research.py btc_cycle_research.py
+          btc_momentum_research.py btc_halving_research.py
+          btc_return_models.py btc_return_eval.py btc_return_research.py
+
+      - name: Run complete unit and regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run refreshed v0.7 research
+        run: >
+          python btc_return_research.py
+          --refresh
+          --initial-capital-krw 10000000
+
+      - name: Validate research outputs
+        run: |
+          test -s output/btc_return_v07_manifest.json
+          test -s output/btc_return_v07_report.md
+          test -s output/btc_return_v07_grid.csv
+          test -s output/btc_return_v07_ranking.csv
+          test -s output/btc_return_v07_comparison.csv
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path("output/btc_return_v07_manifest.json").read_text(encoding="utf-8")
+          )
+          assert manifest["mode"] == "shadow-research"
+          assert manifest["auto_order"] is False
+          assert manifest["mdd_limit"] == -0.50
+          assert manifest["research_recommendation_is_live_approval"] is False
+          assert manifest["candidate_count"] > 2500
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          PY
+          cat output/btc_return_v07_report.md
+
+      - name: Upload reproducible research artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc-return-v07-research-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            output/btc_return_v07_*.csv
+            output/btc_return_v07_*.json
+            output/btc_return_v07_*.md
