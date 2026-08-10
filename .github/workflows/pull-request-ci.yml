@@ -32,7 +32,7 @@ jobs:
         run: >
           python -m py_compile
           quant_guardian.py btc_guardian.py btc_research.py btc_cycle_research.py
-          btc_momentum_research.py
+          btc_momentum_research.py btc_halving_research.py
           build_dashboard.py launch_dashboard.py telegram_notify.py
 
       - name: Run unit tests
