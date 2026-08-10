@@ -1,0 +1,126 @@
+name: BTC v0.7 Upbit Advisory
+
+on:
+  schedule:
+    # Every day at 09:17 KST. GitHub may start scheduled jobs a few minutes late.
+    - cron: "17 0 * * *"
+  workflow_dispatch:
+    inputs:
+      send_telegram:
+        description: "Send Telegram even for this manual run"
+        required: false
+        default: false
+        type: boolean
+      reset_model:
+        description: "Reset the 5,000,000 KRW model account to 0 BTC"
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    paths:
+      - "btc_v07_advisory.py"
+      - "btc_v07_telegram.py"
+      - "btc_guardian.py"
+      - "config.toml"
+      - "tests/test_btc_v07_advisory.py"
+      - ".github/workflows/btc-v07-advisory.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-v07-advisory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  advisory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile BTC advisory modules
+        run: >
+          python -m py_compile
+          quant_guardian.py btc_guardian.py btc_v07_advisory.py btc_v07_telegram.py
+
+      - name: Run complete unit and regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Restore previous BTC model state
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@v4
+        with:
+          path: data/state/btc_v07_state.json
+          key: btc-v07-state-${{ github.run_id }}
+          restore-keys: |
+            btc-v07-state-
+
+      - name: Build refreshed BTC v0.7 advisory
+        env:
+          BTC_BUDGET_KRW: "5000000"
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_FORCE_NOTIFY: ${{ inputs.send_telegram }}
+          MANUAL_RESET_MODEL: ${{ inputs.reset_model }}
+        run: |
+          mkdir -p data/state output
+          STATE_FILE="data/state/btc_v07_state.json"
+          EXTRA_ARGS=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            STATE_FILE="data/state/btc_v07_pr_state.json"
+            EXTRA_ARGS="--reset-model --force-notify"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$MANUAL_FORCE_NOTIFY" = "true" ]; then
+              EXTRA_ARGS="$EXTRA_ARGS --force-notify"
+            fi
+            if [ "$MANUAL_RESET_MODEL" = "true" ]; then
+              EXTRA_ARGS="$EXTRA_ARGS --reset-model"
+            fi
+          fi
+          python btc_v07_advisory.py \
+            --refresh \
+            --budget-krw "$BTC_BUDGET_KRW" \
+            --state-file "$STATE_FILE" \
+            --output output/btc_v07_advisory.json \
+            $EXTRA_ARGS
+
+      - name: Validate advisory safety and schema
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("output/btc_v07_advisory.json").read_text(encoding="utf-8")
+          )
+          assert payload["strategy_version"] == "btc-v07-vol40-upbit-advisory-1.0"
+          assert payload["auto_order"] is False
+          assert payload["data_status"] in {"ok", "error"}
+          if payload["data_status"] == "ok":
+              signal = payload["signal"]
+              assert signal["target_annual_volatility"] == 0.40
+              assert signal["entry_progress"] == 0.65
+              assert signal["exit_progress"] == 0.35
+              assert 0 <= signal["target_weight"] <= 1
+              assert payload["performance"]["equity_krw"] >= 0
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Send BTC Telegram notification
+        if: >-
+          github.event_name == 'schedule' ||
+          (github.event_name == 'workflow_dispatch' && inputs.send_telegram)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python btc_v07_telegram.py --data-file output/btc_v07_advisory.json
