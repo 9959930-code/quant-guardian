@@ -1,6 +1,13 @@
 name: BTC Fixed Six-Trade Research
 
 on:
+  push:
+    branches:
+      - "research/btc-fixed-six-trade"
+    paths:
+      - "btc_fixed_six_trade_research.py"
+      - "tests/test_btc_fixed_six_trade_research.py"
+      - ".github/workflows/btc-fixed-six-trade-research.yml"
   workflow_dispatch:
   pull_request:
     paths:
