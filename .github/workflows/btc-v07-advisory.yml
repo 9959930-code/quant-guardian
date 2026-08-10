@@ -19,10 +19,13 @@ on:
   pull_request:
     paths:
       - "btc_v07_advisory.py"
+      - "btc_v07_split_advisory.py"
       - "btc_v07_telegram.py"
       - "btc_guardian.py"
       - "config.toml"
       - "tests/test_btc_v07_advisory.py"
+      - "tests/test_btc_v07_split_advisory.py"
+      - "docs/btc/v0.7/**"
       - ".github/workflows/btc-v07-advisory.yml"
 
 permissions:
@@ -52,7 +55,8 @@ jobs:
       - name: Compile BTC advisory modules
         run: >
           python -m py_compile
-          quant_guardian.py btc_guardian.py btc_v07_advisory.py btc_v07_telegram.py
+          quant_guardian.py btc_guardian.py
+          btc_v07_advisory.py btc_v07_split_advisory.py btc_v07_telegram.py
 
       - name: Run complete unit and regression tests
         run: python -m unittest discover -s tests -v
@@ -66,7 +70,7 @@ jobs:
           restore-keys: |
             btc-v07-state-
 
-      - name: Build refreshed BTC v0.7 advisory
+      - name: Build refreshed BTC v0.7 three-split advisory
         env:
           BTC_BUDGET_KRW: "5000000"
           EVENT_NAME: ${{ github.event_name }}
@@ -87,7 +91,7 @@ jobs:
               EXTRA_ARGS="$EXTRA_ARGS --reset-model"
             fi
           fi
-          python btc_v07_advisory.py \
+          python btc_v07_split_advisory.py \
             --refresh \
             --budget-krw "$BTC_BUDGET_KRW" \
             --state-file "$STATE_FILE" \
@@ -103,15 +107,22 @@ jobs:
           payload = json.loads(
               Path("output/btc_v07_advisory.json").read_text(encoding="utf-8")
           )
-          assert payload["strategy_version"] == "btc-v07-vol40-upbit-advisory-1.0"
+          assert payload["strategy_version"] == "btc-v07-vol40-upbit-three-split-advisory-1.1"
+          assert payload["schema_version"] == 2
           assert payload["auto_order"] is False
           assert payload["data_status"] in {"ok", "error"}
+          assert payload["execution_policy"]["entry_parts"] == 3
+          assert payload["execution_policy"]["exit_parts"] == 3
           if payload["data_status"] == "ok":
               signal = payload["signal"]
+              plan = payload["plan"]
               assert signal["target_annual_volatility"] == 0.40
               assert signal["entry_progress"] == 0.65
               assert signal["exit_progress"] == 0.35
               assert 0 <= signal["target_weight"] <= 1
+              assert 0 <= plan["step_target_weight"] <= 1
+              assert 0 <= plan["final_target_weight"] <= 1
+              assert plan["total_parts"] in {0, 3}
               assert payload["performance"]["equity_krw"] >= 0
           print(json.dumps(payload, ensure_ascii=False, indent=2))
           PY
