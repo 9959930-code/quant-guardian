@@ -1,0 +1,97 @@
+name: BTC v0.7 Three-Split Research
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "btc_v07_three_split_research.py"
+      - "btc_return_models.py"
+      - "btc_return_eval.py"
+      - "btc_return_research.py"
+      - "btc_halving_research.py"
+      - "btc_momentum_research.py"
+      - "btc_cycle_research.py"
+      - "btc_research.py"
+      - "btc_guardian.py"
+      - "config.toml"
+      - "tests/test_btc_v07_three_split_research.py"
+      - ".github/workflows/btc-v07-three-split-research.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-v07-three-split-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile modules
+        run: >
+          python -m py_compile
+          quant_guardian.py btc_guardian.py btc_research.py btc_cycle_research.py
+          btc_momentum_research.py btc_halving_research.py
+          btc_return_models.py btc_return_eval.py btc_return_research.py
+          btc_v07_three_split_research.py
+
+      - name: Run all unit and regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run refreshed three-split research
+        run: >
+          python btc_v07_three_split_research.py
+          --refresh
+          --initial-capital-krw 10000000
+
+      - name: Validate outputs
+        run: |
+          test -s output/btc_v07_three_split_manifest.json
+          test -s output/btc_v07_three_split_report.md
+          test -s output/btc_v07_three_split_comparison.csv
+          test -s output/btc_v07_three_split_cycles.csv
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path("output/btc_v07_three_split_manifest.json").read_text(encoding="utf-8")
+          )
+          assert manifest["mode"] == "shadow-research"
+          assert manifest["auto_order"] is False
+          assert manifest["telegram_rule_changed"] is False
+          comparison = pd.read_csv("output/btc_v07_three_split_comparison.csv")
+          assert set(comparison["variant_id"]) == {
+              "one_shot", "entry_3_exit_1", "entry_1_exit_3", "entry_3_exit_3"
+          }
+          assert set(comparison["data_mode"]) == {"full", "upbit"}
+          assert len(comparison) == 8
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          PY
+          cat output/btc_v07_three_split_report.md
+
+      - name: Upload reproducible research artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc-v07-three-split-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            output/btc_v07_three_split_*.csv
+            output/btc_v07_three_split_*.json
+            output/btc_v07_three_split_*.md
