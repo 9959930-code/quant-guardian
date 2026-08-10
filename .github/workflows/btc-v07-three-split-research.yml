@@ -5,6 +5,8 @@ on:
   pull_request:
     paths:
       - "btc_v07_three_split_research.py"
+      - "btc_v07_split_engine.py"
+      - "btc_v07_three_split_runner.py"
       - "btc_return_models.py"
       - "btc_return_eval.py"
       - "btc_return_research.py"
@@ -47,14 +49,15 @@ jobs:
           quant_guardian.py btc_guardian.py btc_research.py btc_cycle_research.py
           btc_momentum_research.py btc_halving_research.py
           btc_return_models.py btc_return_eval.py btc_return_research.py
-          btc_v07_three_split_research.py
+          btc_v07_three_split_research.py btc_v07_split_engine.py
+          btc_v07_three_split_runner.py
 
       - name: Run all unit and regression tests
         run: python -m unittest discover -s tests -v
 
       - name: Run refreshed three-split research
         run: >
-          python btc_v07_three_split_research.py
+          python btc_v07_three_split_runner.py
           --refresh
           --initial-capital-krw 10000000
 
