@@ -1,0 +1,90 @@
+name: BTC Fixed Six-Trade Research
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "btc_fixed_six_trade_research.py"
+      - "btc_v07_three_split_research.py"
+      - "btc_research.py"
+      - "btc_guardian.py"
+      - "btc_cycle_research.py"
+      - "config.toml"
+      - "tests/test_btc_fixed_six_trade_research.py"
+      - ".github/workflows/btc-fixed-six-trade-research.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-fixed-six-trade-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile modules
+        run: >
+          python -m py_compile
+          quant_guardian.py btc_guardian.py btc_research.py btc_cycle_research.py
+          btc_v07_three_split_research.py btc_fixed_six_trade_research.py
+
+      - name: Run all unit and regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run refreshed fixed six-trade research
+        run: >
+          python btc_fixed_six_trade_research.py
+          --refresh
+          --initial-capital-krw 10000000
+
+      - name: Validate results
+        run: |
+          test -s output/btc_fixed_six_trade_results.json
+          test -s output/btc_fixed_six_trade_report.md
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("output/btc_fixed_six_trade_results.json").read_text(encoding="utf-8")
+          )
+          assert payload["mode"] == "shadow-research"
+          assert payload["auto_order"] is False
+          assert payload["definition"]["intermediate_rebalancing"] is False
+          assert payload["definition"]["trades_per_completed_cycle"] == 6
+          assert len(payload["full"]) >= 3
+          assert len(payload["upbit"]) >= 2
+          for collection in (payload["full"], payload["upbit"]):
+              for row in collection:
+                  assert row["trade_count"] == 6
+                  assert row["entry_dates"] == sorted(row["entry_dates"])
+                  assert row["exit_dates"] == sorted(row["exit_dates"])
+                  assert row["entry_dates"][-1] < row["exit_dates"][0]
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+          PY
+          cat output/btc_fixed_six_trade_report.md
+
+      - name: Upload reproducible research artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc-fixed-six-trade-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            output/btc_fixed_six_trade_results.json
+            output/btc_fixed_six_trade_report.md
