@@ -8,6 +8,7 @@ on:
       - "btc_v07_split_engine.py"
       - "btc_v07_three_split_runner.py"
       - "btc_v07_recent_halving.py"
+      - "btc_v07_all_episodes.py"
       - "btc_return_models.py"
       - "btc_return_eval.py"
       - "btc_return_research.py"
@@ -52,6 +53,7 @@ jobs:
           btc_return_models.py btc_return_eval.py btc_return_research.py
           btc_v07_three_split_research.py btc_v07_split_engine.py
           btc_v07_three_split_runner.py btc_v07_recent_halving.py
+          btc_v07_all_episodes.py
 
       - name: Run all unit and regression tests
         run: python -m unittest discover -s tests -v
@@ -62,10 +64,10 @@ jobs:
           --refresh
           --initial-capital-krw 10000000
 
-      - name: Calculate latest halving episode
-        run: >
-          python btc_v07_recent_halving.py
-          --initial-capital-krw 10000000
+      - name: Calculate halving episodes
+        run: |
+          python btc_v07_recent_halving.py --initial-capital-krw 10000000
+          python btc_v07_all_episodes.py --initial-capital-krw 10000000
 
       - name: Validate outputs
         run: |
@@ -75,6 +77,7 @@ jobs:
           test -s output/btc_v07_three_split_cycles.csv
           test -s output/btc_v07_recent_halving.json
           test -s output/btc_v07_recent_halving.md
+          test -s output/btc_v07_all_episodes.json
           python - <<'PY'
           import json
           import pandas as pd
@@ -95,12 +98,18 @@ jobs:
           recent = json.loads(
               Path("output/btc_v07_recent_halving.json").read_text(encoding="utf-8")
           )
+          episodes = json.loads(
+              Path("output/btc_v07_all_episodes.json").read_text(encoding="utf-8")
+          )
           assert recent["mode"] == "shadow-research"
           assert recent["auto_order"] is False
           assert recent["upbit"]["strategy_total_return"] > -1
           assert recent["upbit"]["final_exit_date"] >= recent["upbit"]["first_entry_date"]
+          assert episodes["mode"] == "shadow-research"
+          assert any(item.get("halving_date", "").startswith("2020") for item in episodes["upbit"])
           print(json.dumps(manifest, ensure_ascii=False, indent=2))
           print(json.dumps(recent, ensure_ascii=False, indent=2))
+          print(json.dumps(episodes, ensure_ascii=False, indent=2))
           PY
           cat output/btc_v07_three_split_report.md
           cat output/btc_v07_recent_halving.md
@@ -117,3 +126,4 @@ jobs:
             output/btc_v07_three_split_*.md
             output/btc_v07_recent_halving.json
             output/btc_v07_recent_halving.md
+            output/btc_v07_all_episodes.json
