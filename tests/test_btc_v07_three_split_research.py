@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from btc_v07_three_split_research import simulate_three_split
+from btc_v07_split_engine import simulate_three_split
 
 
 def simple_features(days: int = 35, price: float = 100.0) -> pd.DataFrame:
