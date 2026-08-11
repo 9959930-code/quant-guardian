@@ -61,6 +61,7 @@ def _fast_portfolio_path(
     # Asset column order is TQQQ, QQQ, CASH.
     current = np.array([0.0, 0.0, 1.0], dtype=float)
     portfolio_returns = np.zeros(len(index), dtype=float)
+    cost_adjustments = np.zeros(len(index), dtype=float)
     last_position = 0
     trade_positions: list[int] = []
     pending: dict[int, np.ndarray] = {}
@@ -96,13 +97,18 @@ def _fast_portfolio_path(
         current = desired
         if risk_turnover > 1e-12:
             trade_positions.append(position)
-            portfolio_returns[position] -= risk_turnover * cost_rate
+            cost_adjustments[position] += risk_turnover * cost_rate
         last_position = position
 
     if last_position < len(index):
-        portfolio_returns[last_position:] += asset_returns[last_position:] @ current
+        portfolio_returns[last_position:] = asset_returns[last_position:] @ current
+    portfolio_returns -= cost_adjustments
     equity = np.cumprod(1.0 + portfolio_returns)
-    trade_dates = index[np.array(trade_positions, dtype=int)] if trade_positions else pd.DatetimeIndex([])
+    trade_dates = (
+        index[np.array(trade_positions, dtype=int)]
+        if trade_positions
+        else pd.DatetimeIndex([])
+    )
     return equity, trade_dates
 
 
