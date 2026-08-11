@@ -1,0 +1,115 @@
+name: Equity v2 Phase-Two Research
+
+on:
+  push:
+    branches:
+      - "research/equity-v2-phase2"
+    paths:
+      - "equity_v2_phase2_research.py"
+      - "equity_v2_phase2_runner.py"
+      - "tests/test_equity_v2_phase2_research.py"
+      - "docs/equity/v2/EQUITY_V2_PHASE2_RESEARCH_PLAN.md"
+      - ".github/workflows/equity-v2-phase2-research.yml"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "equity_v2_phase2_research.py"
+      - "equity_v2_phase2_runner.py"
+      - "equity_v2_engine.py"
+      - "quant_guardian.py"
+      - "tests/test_equity_v2_phase2_research.py"
+      - "docs/equity/v2/**"
+      - ".github/workflows/equity-v2-phase2-research.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: equity-v2-phase2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PYTHONHASHSEED: "0"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile research modules
+        run: >
+          python -m py_compile
+          quant_guardian.py equity_v2_engine.py
+          equity_v2_phase2_research.py equity_v2_phase2_runner.py
+
+      - name: Run all unit and regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run refreshed phase-two research
+        run: >
+          python equity_v2_phase2_runner.py
+          --refresh
+          --cost-bps 5
+          --slippage-bps 5
+
+      - name: Validate outputs
+        run: |
+          test -s output/equity_v2_phase2_manifest.json
+          test -s output/equity_v2_phase2_report.md
+          test -s output/equity_v2_phase2_broad.csv
+          test -s output/equity_v2_phase2_exact.csv
+          test -s output/equity_v2_phase2_selected_strategies.csv
+          test -s output/equity_v2_phase2_selected_blends.csv
+          test -s output/equity_v2_phase2_buy_hold.csv
+          test -s output/equity_v2_phase2_synthetic_stress.csv
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path("output/equity_v2_phase2_manifest.json").read_text(encoding="utf-8")
+          )
+          assert manifest["mode"] == "research-only"
+          assert manifest["btc_changed"] is False
+          assert manifest["live_equity_changed"] is False
+          assert manifest["auto_order"] is False
+          assert manifest["candidate_count"] > 10000
+          assert manifest["exact_count"] > 100
+          strategies = pd.read_csv("output/equity_v2_phase2_selected_strategies.csv")
+          blends = pd.read_csv("output/equity_v2_phase2_selected_blends.csv")
+          buy_hold = pd.read_csv("output/equity_v2_phase2_buy_hold.csv")
+          synthetic = pd.read_csv("output/equity_v2_phase2_synthetic_stress.csv")
+          assert {"aggressive_max", "balanced_mdd50"}.issubset(set(strategies["category"]))
+          assert "blend_mdd50" in set(blends["category"])
+          assert "TQQQ_from_2010" in set(buy_hold["label"])
+          assert "synthetic_buy_hold" in set(synthetic["strategy"])
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          PY
+          cat output/equity_v2_phase2_report.md
+
+      - name: Upload reproducible phase-two artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: equity-v2-phase2-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          path: |
+            output/equity_v2_phase2_*.csv
+            output/equity_v2_phase2_*.json
+            output/equity_v2_phase2_*.md
