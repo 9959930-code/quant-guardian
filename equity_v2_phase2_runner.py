@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import math
 from typing import Any, Iterable, Mapping
 
 import numpy as np
 import pandas as pd
 
 import equity_v2_phase2_research as research
-from equity_v2_engine import Phase2Candidate if False else SimulationResult
-from equity_v2_engine import simulate_close_to_close
+from equity_v2_engine import SimulationResult, simulate_close_to_close
 
 
 _original_buy_hold_comparison = research.buy_hold_comparison
