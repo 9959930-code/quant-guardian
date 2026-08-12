@@ -1,0 +1,89 @@
+name: Equity v2 DCA Taxable Research
+
+on:
+  push:
+    branches:
+      - "research/equity-v2-dca-taxable"
+    paths:
+      - "equity_v2_dca_engine.py"
+      - "equity_v2_dca_research.py"
+      - "tests/test_equity_v2_dca_research.py"
+      - ".github/workflows/equity-v2-dca-taxable-research.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: equity-v2-dca-taxable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PYTHONHASHSEED: "0"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile modules
+        run: >
+          python -m py_compile
+          quant_guardian.py equity_v2_engine.py
+          equity_v2_dca_engine.py equity_v2_dca_research.py
+
+      - name: Run all tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run refreshed DCA research
+        run: python equity_v2_dca_research.py --refresh
+
+      - name: Validate outputs
+        run: |
+          test -s output/equity_v2_dca_manifest.json
+          test -s output/equity_v2_dca_report.md
+          test -s output/equity_v2_dca_broad.csv
+          test -s output/equity_v2_dca_winners.csv
+          test -s output/equity_v2_dca_rolling.csv
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+
+          manifest = json.loads(Path("output/equity_v2_dca_manifest.json").read_text(encoding="utf-8"))
+          assert manifest["mode"] == "research-only"
+          assert manifest["btc_changed"] is False
+          assert manifest["live_equity_changed"] is False
+          assert manifest["initial_capital_krw"] == 80000000
+          assert manifest["monthly_contribution_krw"] == 500000
+          assert manifest["candidate_count"] > 1000
+          winners = pd.read_csv("output/equity_v2_dca_winners.csv")
+          assert {"always_tqqq", "always_qqq_contrib"}.issubset(set(winners["category"]))
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          PY
+          cat output/equity_v2_dca_report.md
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: equity-v2-dca-taxable-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            output/equity_v2_dca_*.csv
+            output/equity_v2_dca_*.json
+            output/equity_v2_dca_*.md
