@@ -7,6 +7,7 @@ on:
     paths:
       - "equity_v2_modern_engine.py"
       - "equity_v2_modern_research.py"
+      - "equity_v2_modern_runner.py"
       - "tests/test_equity_v2_modern_research.py"
       - "docs/equity/v2/EQUITY_V2_MODERN_RESEARCH_PLAN.md"
       - ".github/workflows/equity-v2-modern-research.yml"
@@ -15,6 +16,7 @@ on:
     paths:
       - "equity_v2_modern_engine.py"
       - "equity_v2_modern_research.py"
+      - "equity_v2_modern_runner.py"
       - "equity_v2_engine.py"
       - "equity_v2_dca_engine.py"
       - "quant_guardian.py"
@@ -57,12 +59,13 @@ jobs:
           quant_guardian.py equity_v2_engine.py equity_v2_dca_engine.py
           equity_v2_ndx_1985_research.py
           equity_v2_modern_engine.py equity_v2_modern_research.py
+          equity_v2_modern_runner.py
 
       - name: Run all tests
         run: python -m unittest discover -s tests -v
 
       - name: Run refreshed modern-regime research
-        run: python equity_v2_modern_research.py --refresh
+        run: python equity_v2_modern_runner.py --refresh
 
       - name: Validate outputs
         run: |
