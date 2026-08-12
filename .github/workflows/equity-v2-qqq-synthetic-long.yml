@@ -1,0 +1,96 @@
+name: Equity v2 QQQ Synthetic Long History
+
+on:
+  push:
+    branches:
+      - "research/equity-v2-qqq-synthetic-long"
+    paths:
+      - "equity_v2_qqq_synthetic_long.py"
+      - "tests/test_equity_v2_qqq_synthetic_long.py"
+      - ".github/workflows/equity-v2-qqq-synthetic-long.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: equity-v2-qqq-synthetic-long-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONHASHSEED: "0"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile modules
+        run: >
+          python -m py_compile
+          quant_guardian.py equity_v2_engine.py equity_v2_dca_engine.py
+          equity_v2_qqq_synthetic_long.py
+
+      - name: Run all tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run refreshed long-history study
+        run: python equity_v2_qqq_synthetic_long.py --refresh
+
+      - name: Validate outputs
+        run: |
+          test -s output/equity_v2_qqq_synthetic_long_results.csv
+          test -s output/equity_v2_qqq_synthetic_calibration.csv
+          test -s output/equity_v2_qqq_synthetic_long_manifest.json
+          test -s output/equity_v2_qqq_synthetic_long_report.md
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path("output/equity_v2_qqq_synthetic_long_manifest.json").read_text(encoding="utf-8")
+          )
+          assert manifest["mode"] == "research-only"
+          assert manifest["btc_changed"] is False
+          assert manifest["live_equity_changed"] is False
+          assert manifest["data_start"] <= "1999-04-01"
+          results = pd.read_csv("output/equity_v2_qqq_synthetic_long_results.csv")
+          assert "qqq_early_history" in set(results["start_scenario"])
+          assert "always_tqqq" in set(results["strategy"])
+          early = results.loc[
+              (results["model"] == "synthetic_qqq_3x")
+              & (results["start_scenario"] == "qqq_early_history")
+              & (results["strategy"] == "always_tqqq")
+          ]
+          assert not early.empty
+          assert early["mdd"].min() < -0.90
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          PY
+          cat output/equity_v2_qqq_synthetic_long_report.md
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: equity-v2-qqq-synthetic-long-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            output/equity_v2_qqq_synthetic_long_*.csv
+            output/equity_v2_qqq_synthetic_long_*.json
+            output/equity_v2_qqq_synthetic_long_*.md
+            output/equity_v2_qqq_synthetic_calibration.csv
