@@ -1,0 +1,115 @@
+name: Equity v2 Modern-Regime Research
+
+on:
+  push:
+    branches:
+      - "research/equity-v2-modern-2006"
+    paths:
+      - "equity_v2_modern_engine.py"
+      - "equity_v2_modern_research.py"
+      - "tests/test_equity_v2_modern_research.py"
+      - "docs/equity/v2/EQUITY_V2_MODERN_RESEARCH_PLAN.md"
+      - ".github/workflows/equity-v2-modern-research.yml"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "equity_v2_modern_engine.py"
+      - "equity_v2_modern_research.py"
+      - "equity_v2_engine.py"
+      - "equity_v2_dca_engine.py"
+      - "quant_guardian.py"
+      - "tests/test_equity_v2_modern_research.py"
+      - "docs/equity/v2/**"
+      - ".github/workflows/equity-v2-modern-research.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: equity-v2-modern-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PYTHONHASHSEED: "0"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile research modules
+        run: >
+          python -m py_compile
+          quant_guardian.py equity_v2_engine.py equity_v2_dca_engine.py
+          equity_v2_ndx_1985_research.py
+          equity_v2_modern_engine.py equity_v2_modern_research.py
+
+      - name: Run all tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run refreshed modern-regime research
+        run: python equity_v2_modern_research.py --refresh
+
+      - name: Validate outputs
+        run: |
+          test -s output/equity_v2_modern_manifest.json
+          test -s output/equity_v2_modern_report.md
+          test -s output/equity_v2_modern_broad.csv
+          test -s output/equity_v2_modern_exact.csv
+          test -s output/equity_v2_modern_taxable.csv
+          test -s output/equity_v2_modern_finalists.csv
+          test -s output/equity_v2_modern_actual_tqqq.csv
+          test -s output/equity_v2_modern_dotcom.csv
+          test -s output/equity_v2_modern_1985_reference.csv
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path("output/equity_v2_modern_manifest.json").read_text(encoding="utf-8")
+          )
+          assert manifest["mode"] == "research-only"
+          assert manifest["btc_changed"] is False
+          assert manifest["live_equity_changed"] is False
+          assert manifest["auto_order"] is False
+          assert manifest["candidate_count"] > 8000
+          assert manifest["exact_count"] > 100
+          assert manifest["taxable_count"] > 20
+          finalists = pd.read_csv("output/equity_v2_modern_finalists.csv")
+          assert {"absolute_return", "balanced", "survival"}.issubset(
+              set(finalists["category"])
+          )
+          actual = pd.read_csv("output/equity_v2_modern_actual_tqqq.csv")
+          dotcom = pd.read_csv("output/equity_v2_modern_dotcom.csv")
+          assert not actual.empty
+          assert not dotcom.empty
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          PY
+          cat output/equity_v2_modern_report.md
+
+      - name: Upload reproducible artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: equity-v2-modern-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          path: |
+            output/equity_v2_modern_*.csv
+            output/equity_v2_modern_*.json
+            output/equity_v2_modern_*.md
