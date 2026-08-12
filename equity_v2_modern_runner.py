@@ -6,6 +6,7 @@ import equity_v2_modern_engine as engine
 import equity_v2_modern_research as research
 
 
+_original_build_primary_frames = research.build_primary_frames
 _original_generate_targets = research.generate_targets
 _original_stress_tables = research.stress_tables
 
@@ -14,7 +15,7 @@ def _build_primary_frames_with_calendar(*, cfg, paths, refresh):
     # Keep the original calibration process, then rebuild the price panel with
     # pre-2006 QQQ history so long moving averages are ready on the first live
     # research date. QLD still determines the common investable start.
-    _, calibration, residuals, metadata = research.build_primary_frames(
+    _, calibration, residuals, metadata = _original_build_primary_frames(
         cfg=cfg,
         paths=paths,
         refresh=refresh,
