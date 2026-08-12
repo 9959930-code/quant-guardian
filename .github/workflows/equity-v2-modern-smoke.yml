@@ -1,0 +1,27 @@
+name: Equity v2 Modern Smoke
+
+on:
+  push:
+    branches:
+      - "research/equity-v2-modern-2006"
+    paths:
+      - "equity_v2_modern_smoke.py"
+      - ".github/workflows/equity-v2-modern-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m py_compile equity_v2_modern_smoke.py
+      - run: python equity_v2_modern_smoke.py
