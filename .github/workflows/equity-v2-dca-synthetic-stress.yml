@@ -1,0 +1,47 @@
+name: Equity v2 DCA Synthetic Stress
+
+on:
+  push:
+    branches:
+      - "research/equity-v2-dca-taxable"
+    paths:
+      - "equity_v2_dca_synthetic_stress.py"
+      - ".github/workflows/equity-v2-dca-synthetic-stress.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m py_compile equity_v2_dca_engine.py equity_v2_dca_synthetic_stress.py
+      - run: python -m unittest discover -s tests -v
+      - run: python equity_v2_dca_synthetic_stress.py --refresh
+      - name: Validate
+        run: |
+          test -s output/equity_v2_dca_synthetic_constant_fx.csv
+          python - <<'PY'
+          import pandas as pd
+          frame = pd.read_csv("output/equity_v2_dca_synthetic_constant_fx.csv")
+          assert len(frame) == 8
+          dotcom = frame.loc[frame["period"] == "dotcom_2000_2006"]
+          assert dotcom["mdd"].min() < -0.80
+          print(frame.to_string(index=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: equity-v2-dca-synthetic-stress-${{ github.sha }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            output/equity_v2_dca_synthetic_constant_fx.csv
+            output/equity_v2_dca_synthetic_constant_fx.json
