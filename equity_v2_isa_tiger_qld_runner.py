@@ -12,6 +12,7 @@ from quant_guardian import fetch_text
 
 
 _original_fetch_yahoo_price = research.fetch_yahoo_price
+_original_calibrate_tiger_model = research.calibrate_tiger_model
 
 
 def _fetch_yahoo_price_preserving_krx_suffix(ticker: str) -> pd.DataFrame:
@@ -77,7 +78,27 @@ def _fetch_yahoo_price_preserving_krx_suffix(ticker: str) -> pd.DataFrame:
     return frame.set_index("Date")
 
 
+def _calibrate_official_double_krw_model(*args, **kwargs) -> pd.DataFrame:
+    """Keep cross-model diagnostics, but select only the official benchmark structure.
+
+    TIGER 418660 follows the KRW-converted Nasdaq-100 leveraged index, so an
+    empirical fit must not replace that documented structure with a different
+    FX beta merely because a short actual-history RMSE is marginally lower.
+    """
+    table = _original_calibrate_tiger_model(*args, **kwargs)
+    official = table.loc[table["model"] == "double_krw"].sort_values(
+        ["score", "daily_rmse", "residual_drag"]
+    )
+    diagnostics = table.loc[table["model"] != "double_krw"].sort_values(
+        ["score", "daily_rmse", "residual_drag"]
+    )
+    if official.empty:
+        raise RuntimeError("official double_krw TIGER calibration is missing")
+    return pd.concat([official, diagnostics], ignore_index=True)
+
+
 research.fetch_yahoo_price = _fetch_yahoo_price_preserving_krx_suffix
+research.calibrate_tiger_model = _calibrate_official_double_krw_model
 
 
 if __name__ == "__main__":
