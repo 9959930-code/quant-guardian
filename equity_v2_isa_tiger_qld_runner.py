@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime, timedelta
-from urllib.parse import quote
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
-import numpy as np
 import pandas as pd
 
 import equity_v2_isa_tiger_qld_research as research
-from quant_guardian import fetch_text
 
 
 _original_fetch_yahoo_price = research.fetch_yahoo_price
 _original_calibrate_tiger_model = research.calibrate_tiger_model
+MINIMUM_TIGER_RESIDUAL_DRAG = 0.0025
 
 
 def _fetch_naver_tiger_history(ticker: str) -> pd.DataFrame:
@@ -73,31 +69,29 @@ def _fetch_naver_tiger_history(ticker: str) -> pd.DataFrame:
 def _fetch_yahoo_price_preserving_krx_suffix(ticker: str) -> pd.DataFrame:
     if ticker == research.ACTUAL_TIGER_TICKER:
         return _fetch_naver_tiger_history(ticker)
-
     return _original_fetch_yahoo_price(ticker)
 
 
 def _calibrate_official_double_krw_model(*args, **kwargs) -> pd.DataFrame:
-    """Select the documented KRW-converted 2x benchmark with nonnegative drag.
+    """Select the documented KRW-converted 2x benchmark conservatively.
 
-    Cross-model rows remain in the diagnostic CSV, but the production choice is
-    constrained to the issuer-documented double-KRW structure. Residual drag is
-    also constrained to zero or above because a short favorable tracking period
-    must not become a permanent positive alpha assumption in the 20-year splice.
+    The short actual history is retained for lag and tracking diagnostics, but
+    the hypothetical pre-listing series must carry at least the published fund
+    fee. The 0.25% floor maps to 0.30% on the 0.10%-point calibration grid.
     """
     table = _original_calibrate_tiger_model(*args, **kwargs)
-    official = table.loc[
+    official_mask = (
         (table["model"] == "double_krw")
-        & (table["residual_drag"] >= -1e-12)
-    ].sort_values(["score", "daily_rmse", "residual_drag"])
-    diagnostics = table.loc[
-        ~(
-            (table["model"] == "double_krw")
-            & (table["residual_drag"] >= -1e-12)
-        )
-    ].sort_values(["score", "daily_rmse", "residual_drag"])
+        & (table["residual_drag"] >= MINIMUM_TIGER_RESIDUAL_DRAG - 1e-12)
+    )
+    official = table.loc[official_mask].sort_values(
+        ["score", "daily_rmse", "residual_drag"]
+    )
+    diagnostics = table.loc[~official_mask].sort_values(
+        ["score", "daily_rmse", "residual_drag"]
+    )
     if official.empty:
-        raise RuntimeError("official nonnegative-drag TIGER calibration is missing")
+        raise RuntimeError("official fee-floored TIGER calibration is missing")
     return pd.concat([official, diagnostics], ignore_index=True)
 
 
