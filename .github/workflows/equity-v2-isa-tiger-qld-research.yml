@@ -6,6 +6,7 @@ on:
       - "research/equity-v2-isa-tiger-qld-20260815"
     paths:
       - "equity_v2_isa_tiger_qld_research.py"
+      - "equity_v2_isa_tiger_qld_runner.py"
       - "tests/test_equity_v2_isa_tiger_qld_research.py"
       - ".github/workflows/equity-v2-isa-tiger-qld-research.yml"
   workflow_dispatch:
@@ -62,7 +63,7 @@ jobs:
         run: >
           python -m py_compile
           quant_guardian.py equity_v2_dca_engine.py
-          equity_v2_isa_tiger_qld_research.py
+          equity_v2_isa_tiger_qld_research.py equity_v2_isa_tiger_qld_runner.py
           tests/test_equity_v2_isa_tiger_qld_research.py
 
       - name: Run focused tests
@@ -72,7 +73,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Run unified QLD and ISA TIGER research
-        run: python equity_v2_isa_tiger_qld_research.py --refresh-external
+        run: python equity_v2_isa_tiger_qld_runner.py --refresh-external
 
       - name: Validate outputs
         run: |
