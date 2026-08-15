@@ -1,0 +1,179 @@
+name: ISA TIGER Leverage Telegram
+
+on:
+  schedule:
+    # 09:17 KST on Korean weekdays. The service sends only when a plan is due.
+    - cron: "17 0 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force_status:
+        description: "Send a current ISA status report"
+        required: false
+        default: false
+        type: boolean
+      resend_initial:
+        description: "Resend the initial KRW 10,000,000 purchase plan"
+        required: false
+        default: false
+        type: boolean
+      mark_initial_completed:
+        description: "Mark the initial TIGER purchase completed after syncing quantity and invested amount"
+        required: false
+        default: false
+        type: boolean
+      tiger_quantity:
+        description: "Absolute current TIGER quantity, e.g. 231"
+        required: false
+        type: string
+      tiger_invested_krw:
+        description: "Absolute cumulative TIGER invested principal in KRW"
+        required: false
+        type: string
+      isa_total_contributions_krw:
+        description: "Optional absolute ISA cumulative contributions in KRW"
+        required: false
+        type: string
+      reset_state:
+        description: "Reset ISA alert state to the approved existing holdings"
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches:
+      - main
+    paths:
+      - "isa_leverage_advisory.py"
+      - "isa_leverage_core.py"
+      - "isa_leverage_messages.py"
+      - "tests/test_isa_leverage_advisory.py"
+      - "docs/isa/**"
+      - ".github/workflows/isa-leverage-telegram.yml"
+  pull_request:
+    paths:
+      - "isa_leverage_advisory.py"
+      - "isa_leverage_core.py"
+      - "isa_leverage_messages.py"
+      - "tests/test_isa_leverage_advisory.py"
+      - "docs/isa/**"
+      - ".github/workflows/isa-leverage-telegram.yml"
+      - ".github/workflows/deploy-pages.yml"
+      - ".github/workflows/pull-request-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: isa-tiger-leverage-state
+  cancel-in-progress: false
+
+jobs:
+  service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile ISA advisory
+        run: python -m py_compile isa_leverage_core.py isa_leverage_messages.py isa_leverage_advisory.py tests/test_isa_leverage_advisory.py
+
+      - name: Run complete unit and regression tests
+        if: github.event_name != 'schedule'
+        run: python -m unittest discover -s tests -v
+
+      - name: Restore persistent ISA state
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: data/state/isa_leverage_state.json
+          key: isa-tiger-leverage-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            isa-tiger-leverage-state-
+
+      - name: Run ISA Telegram advisory
+        if: github.event_name != 'pull_request'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MANUAL_FORCE_STATUS: ${{ inputs.force_status }}
+          MANUAL_RESEND_INITIAL: ${{ inputs.resend_initial }}
+          MANUAL_MARK_INITIAL_COMPLETED: ${{ inputs.mark_initial_completed }}
+          MANUAL_TIGER_QUANTITY: ${{ inputs.tiger_quantity }}
+          MANUAL_TIGER_INVESTED_KRW: ${{ inputs.tiger_invested_krw }}
+          MANUAL_ISA_TOTAL_CONTRIBUTIONS_KRW: ${{ inputs.isa_total_contributions_krw }}
+          MANUAL_RESET_STATE: ${{ inputs.reset_state }}
+        run: |
+          mkdir -p data/state
+          ARGS=(--state-file data/state/isa_leverage_state.json)
+          if [ "$MANUAL_FORCE_STATUS" = "true" ]; then
+            ARGS+=(--force-status)
+          fi
+          if [ "$MANUAL_RESEND_INITIAL" = "true" ]; then
+            ARGS+=(--resend-initial)
+          fi
+          if [ "$MANUAL_MARK_INITIAL_COMPLETED" = "true" ]; then
+            ARGS+=(--mark-initial-completed)
+          fi
+          if [ -n "$MANUAL_TIGER_QUANTITY" ]; then
+            ARGS+=(--tiger-quantity "$MANUAL_TIGER_QUANTITY")
+          fi
+          if [ -n "$MANUAL_TIGER_INVESTED_KRW" ]; then
+            ARGS+=(--tiger-invested-krw "$MANUAL_TIGER_INVESTED_KRW")
+          fi
+          if [ -n "$MANUAL_ISA_TOTAL_CONTRIBUTIONS_KRW" ]; then
+            ARGS+=(--isa-total-contributions-krw "$MANUAL_ISA_TOTAL_CONTRIBUTIONS_KRW")
+          fi
+          if [ "$MANUAL_RESET_STATE" = "true" ]; then
+            ARGS+=(--reset-state)
+          fi
+          python isa_leverage_advisory.py "${ARGS[@]}"
+
+      - name: Validate persistent ISA state safety
+        if: github.event_name != 'pull_request'
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("data/state/isa_leverage_state.json")
+          state = json.loads(path.read_text(encoding="utf-8"))
+          assert state["schema_version"] == 1
+          assert state["strategy_version"] == "isa-tiger-leverage-telegram-1.0"
+          assert state["strategy"]["auto_order"] is False
+          assert state["strategy"]["initial_investment_krw"] == 10_000_000
+          assert state["strategy"]["monthly_contribution_krw"] == 500_000
+          assert state["account"]["tiger_quantity"] >= 0
+          assert state["account"]["tiger_invested_krw"] >= 0
+          holdings = {
+              item["code"]: item["quantity"]
+              for item in state["account"]["existing_holdings"]
+          }
+          assert holdings == {"442580": 7.0, "0048J0": 145.0, "379810": 70.0}
+          print(
+              json.dumps(
+                  {
+                      "strategy_version": state["strategy_version"],
+                      "initial_completed": state["strategy"]["initial_completed"],
+                      "tiger_quantity": state["account"]["tiger_quantity"],
+                      "tiger_invested_krw": state["account"]["tiger_invested_krw"],
+                      "last_monthly_plan_period": state["strategy"]["last_monthly_plan_period"],
+                      "data_status": state["data"]["status"],
+                      "auto_order": state["strategy"]["auto_order"],
+                  },
+                  ensure_ascii=False,
+                  indent=2,
+              )
+          )
+          PY
+
+      - name: Save persistent ISA state
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: data/state/isa_leverage_state.json
+          key: isa-tiger-leverage-state-${{ github.run_id }}-${{ github.run_attempt }}
