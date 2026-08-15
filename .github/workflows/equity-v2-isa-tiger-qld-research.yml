@@ -59,6 +59,49 @@ jobs:
           cp 'seed-artifact/equity_v2_policy_input_snapshot/KRW=X.csv' 'data/cache/yahoo_KRW=X.csv'
           sha256sum data/cache/*.csv
 
+      - name: Fetch bounded TIGER and FRED snapshots
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import equity_v2_isa_tiger_qld_runner as runner
+
+          cache = Path("data/cache")
+          cache.mkdir(parents=True, exist_ok=True)
+          tiger = runner._fetch_yahoo_price_preserving_krx_suffix("418660.KS")
+          tiger.reset_index(names="Date").to_csv(
+              cache / "yahoo_418660_KS.csv", index=False, encoding="utf-8"
+          )
+          PY
+
+          curl -L --fail --retry 5 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 20 --max-time 240 \
+            'https://fred.stlouisfed.org/graph/fredgraph.csv?id=DEXKOUS&cosd=1998-01-01&coed=2003-12-31' \
+            -o data/cache/raw_DEXKOUS.csv
+
+          curl -L --fail --retry 5 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 20 --max-time 240 \
+            'https://fred.stlouisfed.org/graph/fredgraph.csv?id=IR3TIB01KRM156N&cosd=1998-01-01&coed=2026-08-12' \
+            -o data/cache/raw_IR3TIB01KRM156N.csv
+
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+
+          cache = Path("data/cache")
+          for series_id in ("DEXKOUS", "IR3TIB01KRM156N"):
+              frame = pd.read_csv(cache / f"raw_{series_id}.csv")
+              frame = frame.rename(columns={frame.columns[0]: "Date"})
+              frame.to_csv(
+                  cache / f"fred_{series_id}.csv",
+                  index=False,
+                  encoding="utf-8",
+              )
+          PY
+
+          sha256sum data/cache/yahoo_418660_KS.csv \
+            data/cache/fred_DEXKOUS.csv \
+            data/cache/fred_IR3TIB01KRM156N.csv
+
       - name: Compile research modules
         run: >
           python -m py_compile
@@ -73,7 +116,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Run unified QLD and ISA TIGER research
-        run: python equity_v2_isa_tiger_qld_runner.py --refresh-external
+        run: python equity_v2_isa_tiger_qld_runner.py
 
       - name: Validate outputs
         run: |
