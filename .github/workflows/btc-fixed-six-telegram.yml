@@ -1,4 +1,4 @@
-name: BTC Fixed Six-Trade Telegram
+name: BTC + ISA Portfolio Telegram
 
 on:
   schedule:
@@ -7,12 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       force_status:
-        description: "Send a status report on this run"
+        description: "Send a BTC status report on this run"
+        required: false
+        default: false
+        type: boolean
+      force_isa_status:
+        description: "Send an ISA status report on this run"
         required: false
         default: false
         type: boolean
       reset_state:
-        description: "Reset to KRW 10,000,000 and 0 BTC"
+        description: "Reset BTC to KRW 10,000,000 and 0 BTC"
+        required: false
+        default: false
+        type: boolean
+      reset_isa_state:
+        description: "Reset ISA alert state to approved existing holdings"
         required: false
         default: false
         type: boolean
@@ -22,31 +32,46 @@ on:
     paths:
       - "btc_fixed_advisory.py"
       - "btc_fixed_telegram_bot.py"
+      - "isa_leverage_advisory.py"
+      - "isa_leverage_core.py"
+      - "isa_leverage_messages.py"
+      - "portfolio_telegram_bot.py"
       - "tests/test_btc_fixed_advisory.py"
       - "tests/test_btc_fixed_telegram_bot.py"
+      - "tests/test_isa_leverage_advisory.py"
+      - "tests/test_portfolio_telegram_bot.py"
       - "docs/btc/fixed-six/**"
+      - "docs/isa/**"
       - ".github/workflows/btc-fixed-six-telegram.yml"
   pull_request:
     paths:
       - "btc_fixed_advisory.py"
       - "btc_fixed_telegram_bot.py"
+      - "isa_leverage_advisory.py"
+      - "isa_leverage_core.py"
+      - "isa_leverage_messages.py"
+      - "portfolio_telegram_bot.py"
       - "tests/test_btc_fixed_advisory.py"
       - "tests/test_btc_fixed_telegram_bot.py"
+      - "tests/test_isa_leverage_advisory.py"
+      - "tests/test_portfolio_telegram_bot.py"
       - "docs/btc/fixed-six/**"
+      - "docs/isa/**"
       - ".github/workflows/btc-fixed-six-telegram.yml"
+      - ".github/workflows/isa-leverage-telegram.yml"
       - ".github/workflows/pull-request-ci.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: btc-fixed-six-state
+  group: quant-guardian-telegram-state
   cancel-in-progress: false
 
 jobs:
   service:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -61,8 +86,12 @@ jobs:
         if: github.event_name != 'schedule'
         run: python -m pip install -r requirements.txt
 
-      - name: Compile fixed-six modules
-        run: python -m py_compile btc_fixed_advisory.py btc_fixed_telegram_bot.py
+      - name: Compile portfolio Telegram modules
+        run: >
+          python -m py_compile
+          btc_fixed_advisory.py btc_fixed_telegram_bot.py
+          isa_leverage_core.py isa_leverage_messages.py isa_leverage_advisory.py
+          portfolio_telegram_bot.py
 
       - name: Run complete unit and regression tests
         if: github.event_name != 'schedule'
@@ -77,51 +106,89 @@ jobs:
           restore-keys: |
             btc-fixed-six-state-
 
-      - name: Run fixed-six Telegram service
+      - name: Restore persistent ISA state
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: data/state/isa_leverage_state.json
+          key: isa-tiger-leverage-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            isa-tiger-leverage-state-
+
+      - name: Run unified BTC and ISA Telegram service
         if: github.event_name != 'pull_request'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MANUAL_FORCE_STATUS: ${{ inputs.force_status }}
-          MANUAL_RESET_STATE: ${{ inputs.reset_state }}
+          MANUAL_FORCE_BTC_STATUS: ${{ inputs.force_status }}
+          MANUAL_FORCE_ISA_STATUS: ${{ inputs.force_isa_status }}
+          MANUAL_RESET_BTC_STATE: ${{ inputs.reset_state }}
+          MANUAL_RESET_ISA_STATE: ${{ inputs.reset_isa_state }}
         run: |
           mkdir -p data/state
-          EXTRA_ARGS=""
-          if [ "$MANUAL_FORCE_STATUS" = "true" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS --force-status"
+          ARGS=(
+            --btc-state-file data/state/btc_fixed_state.json
+            --isa-state-file data/state/isa_leverage_state.json
+          )
+          if [ "$MANUAL_FORCE_BTC_STATUS" = "true" ]; then
+            ARGS+=(--force-btc-status)
           fi
-          if [ "$MANUAL_RESET_STATE" = "true" ]; then
-            EXTRA_ARGS="$EXTRA_ARGS --reset-state"
+          if [ "$MANUAL_FORCE_ISA_STATUS" = "true" ]; then
+            ARGS+=(--force-isa-status)
           fi
-          python btc_fixed_telegram_bot.py \
-            --state-file data/state/btc_fixed_state.json \
-            $EXTRA_ARGS
+          if [ "$MANUAL_RESET_BTC_STATE" = "true" ]; then
+            ARGS+=(--reset-btc-state)
+          fi
+          if [ "$MANUAL_RESET_ISA_STATE" = "true" ]; then
+            ARGS+=(--reset-isa-state)
+          fi
+          python portfolio_telegram_bot.py "${ARGS[@]}"
 
-      - name: Validate persistent state safety
+      - name: Validate persistent portfolio state safety
         if: github.event_name != 'pull_request'
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
-          path = Path("data/state/btc_fixed_state.json")
-          state = json.loads(path.read_text(encoding="utf-8"))
-          assert state["schema_version"] == 4
-          assert state["strategy_version"] == "btc-fixed-six-upbit-telegram-1.0"
-          assert state["account"]["cash_krw"] >= 0
-          assert state["account"]["btc_quantity"] >= 0
-          assert state["account"]["reserve_next_krw"] >= 0
-          assert state["account"]["reserve_next_krw"] <= state["account"]["cash_krw"] + 1
-          assert state["strategy"]["phase"] in {"WAITING_ENTRY", "ENTRY", "HOLD", "EXIT"}
+          btc = json.loads(
+              Path("data/state/btc_fixed_state.json").read_text(encoding="utf-8")
+          )
+          assert btc["schema_version"] == 4
+          assert btc["strategy_version"] == "btc-fixed-six-upbit-telegram-1.0"
+          assert btc["account"]["cash_krw"] >= 0
+          assert btc["account"]["btc_quantity"] >= 0
+          assert btc["account"]["reserve_next_krw"] >= 0
+          assert btc["account"]["reserve_next_krw"] <= btc["account"]["cash_krw"] + 1
+          assert btc["strategy"]["phase"] in {"WAITING_ENTRY", "ENTRY", "HOLD", "EXIT"}
+          assert btc["telegram"].get("unified_menu_version", 0) >= 2
+
+          isa = json.loads(
+              Path("data/state/isa_leverage_state.json").read_text(encoding="utf-8")
+          )
+          assert isa["schema_version"] == 1
+          assert isa["strategy_version"] == "isa-tiger-leverage-telegram-1.0"
+          assert isa["strategy"]["auto_order"] is False
+          assert isa["strategy"]["initial_investment_krw"] == 10_000_000
+          assert isa["strategy"]["monthly_contribution_krw"] == 500_000
+          assert isa["account"]["tiger_quantity"] >= 0
+          assert isa["account"]["tiger_invested_krw"] >= 0
+          holdings = {
+              item["code"]: item["quantity"]
+              for item in isa["account"]["existing_holdings"]
+          }
+          assert holdings == {"442580": 7.0, "0048J0": 145.0, "379810": 70.0}
+
           print(
               json.dumps(
                   {
-                      "strategy_version": state["strategy_version"],
-                      "phase": state["strategy"]["phase"],
-                      "total_contributions_krw": state["account"]["total_contributions_krw"],
-                      "btc_quantity": state["account"]["btc_quantity"],
-                      "pending_sync": bool(state["telegram"].get("pending_sync")),
-                      "pending_operation": bool(state["telegram"].get("pending_operation")),
+                      "btc_phase": btc["strategy"]["phase"],
+                      "btc_quantity": btc["account"]["btc_quantity"],
+                      "isa_initial_completed": isa["strategy"]["initial_completed"],
+                      "isa_tiger_quantity": isa["account"]["tiger_quantity"],
+                      "isa_tiger_invested_krw": isa["account"]["tiger_invested_krw"],
+                      "menu_version": btc["telegram"]["unified_menu_version"],
+                      "auto_order": False,
                   },
                   ensure_ascii=False,
                   indent=2,
@@ -135,3 +202,10 @@ jobs:
         with:
           path: data/state/btc_fixed_state.json
           key: btc-fixed-six-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save persistent ISA state
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: data/state/isa_leverage_state.json
+          key: isa-tiger-leverage-state-${{ github.run_id }}-${{ github.run_attempt }}
