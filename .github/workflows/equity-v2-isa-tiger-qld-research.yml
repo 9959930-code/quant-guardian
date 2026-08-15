@@ -1,0 +1,135 @@
+name: Equity v2 ISA TIGER vs QLD Research
+
+on:
+  push:
+    branches:
+      - "research/equity-v2-isa-tiger-qld-20260815"
+    paths:
+      - "equity_v2_isa_tiger_qld_research.py"
+      - "tests/test_equity_v2_isa_tiger_qld_research.py"
+      - ".github/workflows/equity-v2-isa-tiger-qld-research.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: equity-v2-isa-tiger-qld-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PYTHONHASHSEED: "0"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Download frozen modern input artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: equity-v2-rebalance-policy-1ba482d7d81f6cc27247c52d8025f41133681295
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: 9959930-code/quant-guardian
+          run-id: 31824527577
+          path: seed-artifact
+
+      - name: Seed exact cached modern inputs
+        run: |
+          mkdir -p data/cache
+          cp seed-artifact/equity_v2_policy_input_snapshot/QQQ.csv data/cache/yahoo_QQQ.csv
+          cp seed-artifact/equity_v2_policy_input_snapshot/QLD.csv data/cache/yahoo_QLD.csv
+          cp seed-artifact/equity_v2_policy_input_snapshot/_IRX.csv data/cache/yahoo__IRX.csv
+          cp 'seed-artifact/equity_v2_policy_input_snapshot/KRW=X.csv' 'data/cache/yahoo_KRW=X.csv'
+          sha256sum data/cache/*.csv
+
+      - name: Compile research modules
+        run: >
+          python -m py_compile
+          quant_guardian.py equity_v2_dca_engine.py
+          equity_v2_isa_tiger_qld_research.py
+          tests/test_equity_v2_isa_tiger_qld_research.py
+
+      - name: Run focused tests
+        run: python -m unittest tests.test_equity_v2_isa_tiger_qld_research -v
+
+      - name: Run all tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run unified QLD and ISA TIGER research
+        run: python equity_v2_isa_tiger_qld_research.py --refresh-external
+
+      - name: Validate outputs
+        run: |
+          test -s output/equity_v2_isa_tiger_qld_manifest.json
+          test -s output/equity_v2_isa_tiger_qld_report.md
+          test -s output/equity_v2_isa_tiger_qld_summary.csv
+          test -s output/equity_v2_isa_tiger_qld_regime.csv
+          test -s output/equity_v2_isa_tiger_qld_rolling.csv
+          test -s output/equity_v2_isa_tiger_qld_delay.csv
+          test -s output/equity_v2_isa_tiger_qld_threshold.csv
+          test -s output/equity_v2_isa_tiger_qld_stress.csv
+          test -s output/equity_v2_isa_tiger_qld_leverage.csv
+          test -s output/equity_v2_isa_tiger_qld_tiger_calibration.csv
+          test -s output/equity_v2_isa_tiger_qld_input_snapshot/manifest.json
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path("output/equity_v2_isa_tiger_qld_manifest.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          assert manifest["mode"] == "research-only"
+          assert manifest["btc_changed"] is False
+          assert manifest["live_equity_changed"] is False
+          assert manifest["auto_order"] is False
+          assert manifest["fixed_end"] == "2026-08-12"
+          assert len(manifest["input_snapshot"]["files"]) == 7
+          assert manifest["current_fx_signal"]["date"]
+
+          summary = pd.read_csv("output/equity_v2_isa_tiger_qld_summary.csv")
+          regime = pd.read_csv("output/equity_v2_isa_tiger_qld_regime.csv")
+          rolling = pd.read_csv("output/equity_v2_isa_tiger_qld_rolling.csv")
+          stress = pd.read_csv("output/equity_v2_isa_tiger_qld_stress.csv")
+          assert len(summary) == 8
+          assert summary["after_tax_xirr"].notna().all()
+          assert len(regime) == 12
+          assert not rolling.empty
+          assert not stress.empty
+          assert manifest["tiger_model_choice"]["model"] in {
+              "double_krw", "double_additive", "qld_fx1"
+          }
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          PY
+          cat output/equity_v2_isa_tiger_qld_report.md
+
+      - name: Upload reproducible artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: equity-v2-isa-tiger-qld-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+          path: |
+            output/equity_v2_isa_tiger_qld_*.csv
+            output/equity_v2_isa_tiger_qld_*.json
+            output/equity_v2_isa_tiger_qld_*.md
+            output/equity_v2_isa_tiger_qld_input_snapshot/**
