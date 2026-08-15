@@ -35,6 +35,7 @@ jobs:
           btc_v07_advisory.py btc_v07_split_advisory.py btc_v07_telegram.py
           btc_fixed_advisory.py btc_fixed_telegram_bot.py
           isa_leverage_core.py isa_leverage_messages.py isa_leverage_advisory.py
+          portfolio_telegram_bot.py
           build_dashboard.py launch_dashboard.py telegram_notify.py
 
       - name: Run unit tests
