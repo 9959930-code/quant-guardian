@@ -34,9 +34,11 @@ jobs:
           quant_guardian.py btc_guardian.py btc_research.py
           btc_v07_advisory.py btc_v07_split_advisory.py btc_v07_telegram.py
           btc_fixed_advisory.py btc_fixed_telegram_bot.py
+          btc_clock_hybrid_runtime.py
           isa_leverage_core.py isa_leverage_messages.py isa_leverage_advisory.py
-          portfolio_telegram_bot.py
+          portfolio_telegram_bot.py portfolio_telegram_clock_hybrid.py
           build_dashboard.py launch_dashboard.py telegram_notify.py
+          tests/test_btc_clock_hybrid_runtime.py
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
