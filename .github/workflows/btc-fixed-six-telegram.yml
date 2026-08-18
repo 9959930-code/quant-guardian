@@ -32,12 +32,17 @@ on:
     paths:
       - "btc_fixed_advisory.py"
       - "btc_fixed_telegram_bot.py"
+      - "btc_clock_hybrid_core.py"
+      - "btc_clock_hybrid_telegram.py"
+      - "btc_clock_hybrid_runtime.py"
+      - "btc_clock_hybrid_portfolio_runner.py"
       - "isa_leverage_advisory.py"
       - "isa_leverage_core.py"
       - "isa_leverage_messages.py"
       - "portfolio_telegram_bot.py"
       - "tests/test_btc_fixed_advisory.py"
       - "tests/test_btc_fixed_telegram_bot.py"
+      - "tests/test_zz_btc_clock_hybrid_runtime.py"
       - "tests/test_isa_leverage_advisory.py"
       - "tests/test_portfolio_telegram_bot.py"
       - "docs/btc/fixed-six/**"
@@ -47,18 +52,22 @@ on:
     paths:
       - "btc_fixed_advisory.py"
       - "btc_fixed_telegram_bot.py"
+      - "btc_clock_hybrid_core.py"
+      - "btc_clock_hybrid_telegram.py"
+      - "btc_clock_hybrid_runtime.py"
+      - "btc_clock_hybrid_portfolio_runner.py"
       - "isa_leverage_advisory.py"
       - "isa_leverage_core.py"
       - "isa_leverage_messages.py"
       - "portfolio_telegram_bot.py"
       - "tests/test_btc_fixed_advisory.py"
       - "tests/test_btc_fixed_telegram_bot.py"
+      - "tests/test_zz_btc_clock_hybrid_runtime.py"
       - "tests/test_isa_leverage_advisory.py"
       - "tests/test_portfolio_telegram_bot.py"
       - "docs/btc/fixed-six/**"
       - "docs/isa/**"
       - ".github/workflows/btc-fixed-six-telegram.yml"
-      - ".github/workflows/isa-leverage-telegram.yml"
       - ".github/workflows/pull-request-ci.yml"
 
 permissions:
@@ -90,8 +99,10 @@ jobs:
         run: >
           python -m py_compile
           btc_fixed_advisory.py btc_fixed_telegram_bot.py
+          btc_clock_hybrid_core.py btc_clock_hybrid_telegram.py
+          btc_clock_hybrid_runtime.py btc_clock_hybrid_portfolio_runner.py
           isa_leverage_core.py isa_leverage_messages.py isa_leverage_advisory.py
-          portfolio_telegram_bot.py
+          portfolio_telegram_bot.py tests/test_zz_btc_clock_hybrid_runtime.py
 
       - name: Run complete unit and regression tests
         if: github.event_name != 'schedule'
@@ -142,7 +153,7 @@ jobs:
           if [ "$MANUAL_RESET_ISA_STATE" = "true" ]; then
             ARGS+=(--reset-isa-state)
           fi
-          python portfolio_telegram_bot.py "${ARGS[@]}"
+          python btc_clock_hybrid_portfolio_runner.py "${ARGS[@]}"
 
       - name: Validate persistent portfolio state safety
         if: github.event_name != 'pull_request'
@@ -154,14 +165,27 @@ jobs:
           btc = json.loads(
               Path("data/state/btc_fixed_state.json").read_text(encoding="utf-8")
           )
-          assert btc["schema_version"] == 4
-          assert btc["strategy_version"] == "btc-fixed-six-upbit-telegram-1.0"
+          assert btc["schema_version"] == 5
+          assert btc["strategy_version"] == "btc-fixed-six-clock-hybrid-1.1"
           assert btc["account"]["cash_krw"] >= 0
           assert btc["account"]["btc_quantity"] >= 0
           assert btc["account"]["reserve_next_krw"] >= 0
           assert btc["account"]["reserve_next_krw"] <= btc["account"]["cash_krw"] + 1
           assert btc["strategy"]["phase"] in {"WAITING_ENTRY", "ENTRY", "HOLD", "EXIT"}
           assert btc["telegram"].get("unified_menu_version", 0) >= 2
+          assert "btc-fixed-six-v4-to-clock-hybrid-v5" in btc["migrations"]
+          for key in (
+              "entry_watch_alerted_epochs",
+              "entry_alerted_epochs",
+              "halving_alerted_epochs",
+              "exit_warning_alerted_epochs",
+          ):
+              assert isinstance(btc["strategy"][key], list)
+          pending = btc["telegram"].get("pending_sync")
+          if pending:
+              assert pending["policy_version"] == "btc-fixed-six-clock-hybrid-1.1"
+              assert "age_anchor_at_utc" in pending
+              assert isinstance(pending["plan_expired"], bool)
 
           isa = json.loads(
               Path("data/state/isa_leverage_state.json").read_text(encoding="utf-8")
@@ -182,8 +206,16 @@ jobs:
           print(
               json.dumps(
                   {
+                      "btc_strategy_version": btc["strategy_version"],
+                      "btc_schema_version": btc["schema_version"],
                       "btc_phase": btc["strategy"]["phase"],
                       "btc_quantity": btc["account"]["btc_quantity"],
+                      "btc_cash_krw": btc["account"]["cash_krw"],
+                      "btc_pending": None if not pending else {
+                          "kind": pending["kind"],
+                          "step": pending["step"],
+                          "expired": pending["plan_expired"],
+                      },
                       "isa_initial_completed": isa["strategy"]["initial_completed"],
                       "isa_tiger_quantity": isa["account"]["tiger_quantity"],
                       "isa_tiger_invested_krw": isa["account"]["tiger_invested_krw"],
