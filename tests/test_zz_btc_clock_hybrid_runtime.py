@@ -10,11 +10,8 @@ from typing import Any
 import btc_clock_hybrid_core as hybrid
 import btc_clock_hybrid_runtime as runtime
 import btc_clock_hybrid_telegram as hybrid_tg
-
-runtime.install()
-
-import btc_fixed_advisory as core  # noqa: E402
-import btc_fixed_telegram_bot as bot  # noqa: E402
+import btc_fixed_advisory as core
+import btc_fixed_telegram_bot as bot
 
 
 class FakeClient:
@@ -26,6 +23,12 @@ class FakeClient:
 
 
 class ClockHybridRuntimeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Install only when this final-alphabetical module begins running.
+        # Import-time installation would mutate legacy core tests during unittest discovery.
+        runtime.install()
+
     def setUp(self) -> None:
         self.now = datetime(2026, 8, 17, 0, 17, tzinfo=UTC)
 
