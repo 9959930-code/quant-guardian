@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Callable, Mapping
+from urllib.error import HTTPError, URLError
 
 import btc_clock_hybrid_core as hybrid_core
 import btc_clock_hybrid_telegram as hybrid_telegram
@@ -13,11 +16,165 @@ ESTIMATED_BLOCK_MINUTES = 10.0
 FUNDING_ALERT_LEADS = (5, 3)
 FUNDING_MIGRATION = "btc-clock-hybrid-entry-funding-alerts-v1"
 
+BLOCK_HEIGHT_TIMEOUT_SECONDS = 8
+BLOCK_HEIGHT_RETRY_DELAY_SECONDS = 0.35
+BLOCK_HEIGHT_MIN_QUORUM = 2
+BLOCK_HEIGHT_PROVIDERS = (
+    (
+        "mempool.space",
+        "https://mempool.space/api/blocks/tip/height",
+        2,
+    ),
+    (
+        "blockstream.info",
+        "https://blockstream.info/api/blocks/tip/height",
+        2,
+    ),
+    (
+        "blockchain.info",
+        "https://blockchain.info/q/getblockcount",
+        1,
+    ),
+)
+
 _INSTALLED = False
 _BASE_APPLY_DEFAULTS = hybrid_core.apply_defaults
 _BASE_DETECT_EVENTS: Callable[..., list[dict[str, Any]]] | None = None
 _BASE_BLOCK_EVENT_MESSAGE: Callable[[Mapping[str, Any]], str] | None = None
 _BASE_STATUS_MESSAGE: Callable[..., str] | None = None
+
+
+def _fetch_block_height_provider(
+    name: str,
+    url: str,
+    attempts: int,
+) -> tuple[str, int | None, str | None]:
+    errors: list[str] = []
+    for attempt in range(1, max(1, int(attempts)) + 1):
+        try:
+            height = int(
+                core._request_text(
+                    url,
+                    timeout=BLOCK_HEIGHT_TIMEOUT_SECONDS,
+                )
+            )
+            if height <= 0:
+                raise ValueError("0보다 큰 블록 높이가 필요합니다.")
+            return name, height, None
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            ValueError,
+            OSError,
+        ) as exc:
+            errors.append(
+                f"{attempt}차 {type(exc).__name__}: {exc}"
+            )
+            if attempt < attempts:
+                time.sleep(
+                    BLOCK_HEIGHT_RETRY_DELAY_SECONDS * attempt
+                )
+    return name, None, " | ".join(errors)
+
+
+def _select_height_quorum(
+    heights: Mapping[str, int],
+    *,
+    max_height_gap: int,
+) -> list[tuple[str, int]]:
+    ordered = sorted(
+        (
+            (str(name), int(height))
+            for name, height in heights.items()
+        ),
+        key=lambda item: item[1],
+    )
+    candidates: list[list[tuple[str, int]]] = []
+    for start, (_, first_height) in enumerate(ordered):
+        cluster: list[tuple[str, int]] = []
+        for item in ordered[start:]:
+            if item[1] - first_height > max_height_gap:
+                break
+            cluster.append(item)
+        if len(cluster) >= BLOCK_HEIGHT_MIN_QUORUM:
+            candidates.append(cluster)
+    if not candidates:
+        return []
+    return max(
+        candidates,
+        key=lambda cluster: (
+            len(cluster),
+            min(height for _, height in cluster),
+        ),
+    )
+
+
+def fetch_resilient_block_context(
+    now_utc: datetime | None = None,
+    max_height_gap: int = 3,
+) -> core.BlockContext:
+    if max_height_gap < 0:
+        raise ValueError("max_height_gap은 0 이상이어야 합니다.")
+
+    now = now_utc or core.utc_now()
+    heights: dict[str, int] = {}
+    failures: dict[str, str] = {}
+
+    with ThreadPoolExecutor(
+        max_workers=len(BLOCK_HEIGHT_PROVIDERS),
+        thread_name_prefix="btc-block-height",
+    ) as executor:
+        futures = [
+            executor.submit(
+                _fetch_block_height_provider,
+                name,
+                url,
+                attempts,
+            )
+            for name, url, attempts in BLOCK_HEIGHT_PROVIDERS
+        ]
+        for future in as_completed(futures):
+            name, height, error = future.result()
+            if height is not None:
+                heights[name] = height
+            else:
+                failures[name] = error or "알 수 없는 오류"
+
+    quorum = _select_height_quorum(
+        heights,
+        max_height_gap=max_height_gap,
+    )
+    if len(quorum) < BLOCK_HEIGHT_MIN_QUORUM:
+        details: list[str] = []
+        for name, _, _ in BLOCK_HEIGHT_PROVIDERS:
+            if name in heights:
+                details.append(f"{name}={heights[name]:,}")
+            else:
+                details.append(
+                    f"{name}=실패({failures.get(name, '응답 없음')})"
+                )
+        raise core.FixedStrategyError(
+            "블록 높이 조회 실패: 독립 공급자 2개 이상 합의 필요; "
+            + ", ".join(details)
+        )
+
+    agreed_heights = dict(quorum)
+    agreed = min(agreed_heights.values())
+    return core.BlockContext(
+        height=agreed,
+        epoch=agreed // 210_000,
+        cycle_progress=(agreed % 210_000) / 210_000,
+        mempool_height=agreed_heights.get(
+            "mempool.space",
+            agreed,
+        ),
+        blockstream_height=agreed_heights.get(
+            "blockstream.info",
+            agreed,
+        ),
+        observed_at_utc=core.iso_utc(now),
+    )
 
 
 def _normalize_funding_alerts(value: Any) -> list[str]:
@@ -272,6 +429,7 @@ def install() -> None:
     _BASE_BLOCK_EVENT_MESSAGE = bot.block_event_message
     _BASE_STATUS_MESSAGE = bot.status_message
 
+    core.fetch_block_context = fetch_resilient_block_context
     core.detect_block_events = detect_block_events
     bot.block_event_message = block_event_message
     bot.status_message = status_message
