@@ -1,0 +1,115 @@
+name: BTC Clock Exit Comparison
+
+on:
+  push:
+    branches:
+      - "research/btc-clock-hybrid-exit-compare-20260817"
+    paths:
+      - "btc_clock_exit_compare_research.py"
+      - "btc_clock_exit_compare_runner.py"
+      - "tests/test_btc_clock_exit_compare_research.py"
+      - ".github/workflows/btc-clock-exit-compare.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-clock-exit-compare-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile research modules
+        run: >
+          python -m py_compile
+          btc_guardian.py quant_guardian.py
+          btc_clock_exit_compare_research.py btc_clock_exit_compare_runner.py
+          tests/test_btc_clock_exit_compare_research.py
+
+      - name: Run focused tests
+        run: python -m unittest tests.test_btc_clock_exit_compare_research -v
+
+      - name: Run full regression suite
+        run: python -m unittest discover -s tests -v
+
+      - name: Run fixed-date comparison
+        run: python btc_clock_exit_compare_runner.py
+
+      - name: Validate research outputs
+        run: |
+          test -s output/btc_clock_exit_summary.csv
+          test -s output/btc_clock_exit_trades.csv
+          test -s output/btc_clock_exit_daily.csv
+          test -s output/btc_clock_exit_cycles.csv
+          test -s output/btc_clock_exit_report.md
+          test -s output/btc_clock_exit_manifest.json
+          test -s output/btc_clock_exit_input_snapshot/trigger_blocks.csv
+          test -s output/btc_clock_exit_input_snapshot/upbit_krw.csv
+          test -s output/btc_clock_exit_input_snapshot/btc_usd.csv
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+
+          summary = pd.read_csv("output/btc_clock_exit_summary.csv")
+          trades = pd.read_csv("output/btc_clock_exit_trades.csv")
+          cycles = pd.read_csv("output/btc_clock_exit_cycles.csv")
+          manifest = json.loads(
+              Path("output/btc_clock_exit_manifest.json").read_text(encoding="utf-8")
+          )
+
+          assert len(summary) == 4
+          assert set(summary["market"]) == {"upbit_krw", "btc_usd"}
+          assert set(summary["policy"]) == {"old_35_then_weekly", "new_36_37_38"}
+          assert summary["final_equity"].gt(0).all()
+          assert summary["trade_count"].tolist().count(12) == 2
+          assert summary["trade_count"].tolist().count(18) == 2
+          assert len(trades) == 60
+          assert len(cycles) == 5
+          assert manifest["end_date"] == "2026-08-15"
+          assert manifest["warning_only"] == {"entry_watch": 0.625, "exit_warning": 0.35}
+
+          for market in ("upbit_krw", "btc_usd"):
+              subset = trades[trades["market"] == market]
+              old_entries = subset[
+                  (subset["policy"] == "old_35_then_weekly")
+                  & (subset["kind"] == "ENTRY")
+              ][["cycle_epoch", "step", "action_date"]].reset_index(drop=True)
+              new_entries = subset[
+                  (subset["policy"] == "new_36_37_38")
+                  & (subset["kind"] == "ENTRY")
+              ][["cycle_epoch", "step", "action_date"]].reset_index(drop=True)
+              pd.testing.assert_frame_equal(old_entries, new_entries)
+
+          print(summary.to_string(index=False))
+          print(cycles.to_string(index=False))
+          PY
+          cat output/btc_clock_exit_report.md
+
+      - name: Upload reproducible artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: btc-clock-exit-compare-${{ github.sha }}
+          retention-days: 90
+          if-no-files-found: error
+          path: |
+            output/btc_clock_exit_*.csv
+            output/btc_clock_exit_*.md
+            output/btc_clock_exit_*.json
+            output/btc_clock_exit_input_snapshot/**
