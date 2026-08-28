@@ -36,6 +36,7 @@ on:
       - "btc_clock_hybrid_telegram.py"
       - "btc_clock_hybrid_runtime.py"
       - "btc_clock_hybrid_portfolio_runner.py"
+      - "portfolio_operational_alerts.py"
       - "isa_leverage_advisory.py"
       - "isa_leverage_core.py"
       - "isa_leverage_messages.py"
@@ -43,6 +44,7 @@ on:
       - "tests/test_btc_fixed_advisory.py"
       - "tests/test_btc_fixed_telegram_bot.py"
       - "tests/test_zz_btc_clock_hybrid_runtime.py"
+      - "tests/test_zzzz_portfolio_operational_alerts.py"
       - "tests/test_isa_leverage_advisory.py"
       - "tests/test_portfolio_telegram_bot.py"
       - "docs/btc/fixed-six/**"
@@ -56,6 +58,7 @@ on:
       - "btc_clock_hybrid_telegram.py"
       - "btc_clock_hybrid_runtime.py"
       - "btc_clock_hybrid_portfolio_runner.py"
+      - "portfolio_operational_alerts.py"
       - "isa_leverage_advisory.py"
       - "isa_leverage_core.py"
       - "isa_leverage_messages.py"
@@ -63,6 +66,7 @@ on:
       - "tests/test_btc_fixed_advisory.py"
       - "tests/test_btc_fixed_telegram_bot.py"
       - "tests/test_zz_btc_clock_hybrid_runtime.py"
+      - "tests/test_zzzz_portfolio_operational_alerts.py"
       - "tests/test_isa_leverage_advisory.py"
       - "tests/test_portfolio_telegram_bot.py"
       - "docs/btc/fixed-six/**"
@@ -110,8 +114,10 @@ jobs:
           btc_fixed_advisory.py btc_fixed_telegram_bot.py
           btc_clock_hybrid_core.py btc_clock_hybrid_telegram.py
           btc_clock_hybrid_runtime.py btc_clock_hybrid_portfolio_runner.py
+          portfolio_operational_alerts.py
           isa_leverage_core.py isa_leverage_messages.py isa_leverage_advisory.py
           portfolio_telegram_bot.py tests/test_zz_btc_clock_hybrid_runtime.py
+          tests/test_zzzz_portfolio_operational_alerts.py
 
       - name: Run complete unit and regression tests
         if: github.event_name != 'schedule'
@@ -196,6 +202,12 @@ jobs:
               assert "age_anchor_at_utc" in pending
               assert isinstance(pending["plan_expired"], bool)
 
+          operations = btc.get("operations") or {}
+          assert operations["schema_version"] == 1
+          assert "last_scheduled_run_at_utc" in operations
+          assert "last_weekly_heartbeat_period" in operations
+          assert "last_gap_alert_at_utc" in operations
+
           isa = json.loads(
               Path("data/state/isa_leverage_state.json").read_text(encoding="utf-8")
           )
@@ -229,6 +241,7 @@ jobs:
                       "isa_tiger_quantity": isa["account"]["tiger_quantity"],
                       "isa_tiger_invested_krw": isa["account"]["tiger_invested_krw"],
                       "menu_version": btc["telegram"]["unified_menu_version"],
+                      "operations": operations,
                       "auto_order": False,
                   },
                   ensure_ascii=False,
