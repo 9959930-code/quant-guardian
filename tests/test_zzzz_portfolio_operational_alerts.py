@@ -13,9 +13,6 @@ import isa_leverage_core as isa_core
 import portfolio_operational_alerts as operational
 
 
-hybrid_runtime.install()
-
-
 class FakeClient:
     def __init__(self) -> None:
         self.messages: list[tuple[str, bool]] = []
@@ -25,6 +22,11 @@ class FakeClient:
 
 
 class PortfolioOperationalAlertTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Keep legacy core tests isolated during unittest discovery.
+        hybrid_runtime.install()
+
     def setUp(self) -> None:
         self.monday = datetime(2026, 8, 31, 0, 17, tzinfo=UTC)
 
