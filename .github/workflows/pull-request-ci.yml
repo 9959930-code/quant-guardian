@@ -36,8 +36,10 @@ jobs:
           btc_fixed_advisory.py btc_fixed_telegram_bot.py
           btc_clock_hybrid_core.py btc_clock_hybrid_telegram.py
           btc_clock_hybrid_runtime.py btc_clock_hybrid_portfolio_runner.py
+          portfolio_operational_alerts.py
           isa_leverage_core.py isa_leverage_messages.py isa_leverage_advisory.py
           portfolio_telegram_bot.py tests/test_zz_btc_clock_hybrid_runtime.py
+          tests/test_zzzz_portfolio_operational_alerts.py
           build_dashboard.py launch_dashboard.py telegram_notify.py
 
       - name: Run unit tests
