@@ -6,14 +6,11 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 import btc_clock_hybrid_core as hybrid_core
-import btc_clock_hybrid_runtime as hybrid_runtime
 import btc_fixed_advisory as btc_core
 import btc_fixed_telegram_bot as btc_bot
 import isa_leverage_core as isa_core
 import portfolio_telegram_bot as app
 
-
-hybrid_runtime.install()
 
 SERVICE_VERSION = "portfolio-telegram-btc-isa-1.1"
 OPERATIONS_SCHEMA_VERSION = 1
