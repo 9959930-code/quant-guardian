@@ -6,6 +6,7 @@ hybrid.install()
 
 import portfolio_telegram_bot as app  # noqa: E402
 import portfolio_operational_alerts as operational  # noqa: E402
+import portfolio_operational_delivery as delivery  # noqa: E402
 
 _original_help = app.unified_help_message
 
@@ -28,6 +29,7 @@ def hybrid_help() -> str:
 
 
 app.unified_help_message = hybrid_help
+delivery.install()
 operational.install()
 
 
