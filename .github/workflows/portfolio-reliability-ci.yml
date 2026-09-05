@@ -1,0 +1,47 @@
+name: Portfolio Reliability CI
+
+on:
+  push:
+    branches: [fix/portfolio-reliability-20260905]
+  pull_request:
+    paths:
+      - '**.py'
+      - 'infra/watchdog/**'
+      - '.github/workflows/*telegram*.yml'
+      - '.github/workflows/portfolio-reliability-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portfolio-reliability-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run complete regression suite without live credentials
+        run: python -m unittest discover -s tests -v
+      - name: Run watchdog unit tests when present
+        run: |
+          if [ -f infra/watchdog/worker.test.mjs ]; then
+            node --test infra/watchdog/worker.test.mjs
+          fi
+      - name: Export tracked source only for reproducibility
+        run: git archive --format=zip --output=portfolio-source.zip HEAD
+      - name: Upload reviewed source bundle (never runtime state)
+        uses: actions/upload-artifact@v4
+        with:
+          name: portfolio-source-${{ github.sha }}
+          path: portfolio-source.zip
+          retention-days: 7
+          if-no-files-found: error
