@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -147,6 +148,7 @@ def detect_block_events(
     state: dict[str, Any], block: core.BlockContext, now_utc: datetime
 ) -> list[dict[str, Any]]:
     strategy = state["strategy"]
+    observe_eligibility(state, block, now_utc)
     prev_raw = strategy.get("last_block_height")
     prev = None if prev_raw is None else int(prev_raw)
     prev_epoch = strategy.get("last_block_epoch")
@@ -198,6 +200,50 @@ def detect_block_events(
     return events
 
 
+def official_due(now_utc: datetime) -> datetime | None:
+    """Only the current week can be recovered; never replay many old weeks."""
+    local = now_utc.astimezone(core.KST)
+    monday = local.date() - timedelta(days=local.weekday())
+    due = datetime.combine(monday, core.OFFICIAL_CHECK_TIME, tzinfo=core.KST)
+    return due if local >= due else None
+
+
+def official_action_due(now_utc: datetime, state: Mapping[str, Any]) -> bool:
+    due = official_due(now_utc)
+    return due is not None and state["strategy"].get("last_official_monday") != due.date().isoformat()
+
+
+def eligibility_key(state: Mapping[str, Any], block: core.BlockContext) -> str | None:
+    """Evidence is specific to a cycle AND a single uncompleted stage."""
+    st = state["strategy"]
+    phase, current = str(st["phase"]), offset(block)
+    cycle = st.get("cycle_epoch")
+    if state["telegram"].get("pending_sync"):
+        return None
+    if phase == "WAITING_ENTRY" and current >= ENTRY:
+        return f"{block.epoch}:ENTRY:1"
+    if phase == "ENTRY" and int(st.get("entry_steps_completed", 0)) < 3:
+        return f"{cycle}:ENTRY:{int(st.get('entry_steps_completed', 0)) + 1}"
+    if phase == "HOLD" and st.get("correction_buy_pending"):
+        return f"{cycle}:CORRECTION:1"
+    if cycle is not None and block.epoch > int(cycle):
+        done = int(st.get("exit_steps_completed", 0)) if phase == "EXIT" else 0
+        if phase in {"HOLD", "EXIT"} and done < 3 and current >= EXITS[done]:
+            return f"{block.epoch}:EXIT:{done + 1}"
+    return None
+
+
+def observe_eligibility(state: dict[str, Any], block: core.BlockContext, now: datetime) -> None:
+    st = state["strategy"]
+    key = eligibility_key(state, block)
+    evidence = st.get("official_eligibility") or {}
+    if key != evidence.get("key"):
+        st["official_eligibility"] = (
+            {"key": key, "first_observed_at_utc": core.iso_utc(now), "height": block.height}
+            if key else {}
+        )
+
+
 def _pending(
     state: dict[str, Any], instruction: core.OrderInstruction, now: datetime
 ) -> dict[str, Any]:
@@ -237,10 +283,40 @@ def create_official_order(
     now_utc: datetime,
 ) -> dict[str, Any] | None:
     strategy, telegram = state["strategy"], state["telegram"]
-    strategy["last_official_monday"] = now_utc.astimezone(core.KST).date().isoformat()
+    due = official_due(now_utc)
+    if due is None or not official_action_due(now_utc, state):
+        return None
+    strategy["last_official_monday"] = due.date().isoformat()
+    mode = "scheduled" if now_utc.astimezone(core.KST).weekday() == 0 else "catch_up"
+    metadata = {
+        "period": due.strftime("%G-W%V"), "due_at_utc": core.iso_utc(due),
+        "executed_at_utc": core.iso_utc(now_utc), "mode": mode,
+    }
+    strategy["last_official_execution"] = metadata
     if telegram.get("pending_sync"):
         return {"type": "SYNC_BLOCK", "pending_sync": telegram["pending_sync"]}
     phase, current = str(strategy["phase"]), offset(block)
+    key = eligibility_key(state, block)
+    if mode == "catch_up" and key is not None:
+        evidence = strategy.get("official_eligibility") or {}
+        try:
+            observed = core.parse_iso(evidence.get("first_observed_at_utc"))
+        except (TypeError, ValueError):
+            observed = None
+        if evidence.get("key") != key or observed is None or observed > due:
+            metadata["mode"] = "deferred_unproven_eligibility"
+            core.append_audit(state, "OFFICIAL_CATCH_UP_DEFERRED", metadata, now_utc)
+            return {
+                "type": "CHECK_DEFERRED",
+                "message": (
+                    "[BTC 지연 점검 · 주문 보류]\n"
+                    f"예정 점검: {due:%Y-%m-%d %H:%M KST}\n"
+                    "현재 조건은 충족됐지만, 예정시각 이전에 충족됐다는 관측 이력이 없습니다.\n"
+                    "주문 시점을 앞당기지 않도록 다음 공식 월요일에 다시 판단합니다.\n"
+                    "여러 주의 주문을 한꺼번에 만들지 않습니다. 자동주문 없음."
+                ),
+            }
+    core.append_audit(state, "OFFICIAL_CHECK_EXECUTED", metadata, now_utc)
     instruction: core.OrderInstruction | None = None
 
     if phase == "WAITING_ENTRY" and current >= ENTRY:
@@ -303,7 +379,12 @@ def create_official_order(
             )
     if instruction is None:
         return None
+    if mode == "catch_up":
+        instruction = replace(instruction, reason=(
+            instruction.reason + f" · 지연 점검(예정 {due:%Y-%m-%d %H:%M KST}, 현재가 재계산)"
+        ))
     pending = _pending(state, instruction, now_utc)
+    pending["official_execution"] = dict(metadata)
     return {"type": "ORDER", "instruction": instruction, "pending_sync": pending}
 
 
@@ -373,6 +454,7 @@ def install() -> None:
     core._validate_state = validate_state
     core.load_state = load_state
     core.detect_block_events = detect_block_events
+    core.official_action_due = official_action_due
     core.create_official_order = create_official_order
     core.next_condition_text = next_condition_text
     core.stage_label = stage_label

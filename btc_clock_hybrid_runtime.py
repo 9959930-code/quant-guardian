@@ -276,6 +276,10 @@ def _funding_event(
     )
     if key in sent:
         return None
+    skipped = f"{block.epoch}:5"
+    if lead == 3 and skipped not in sent:
+        sent.append(skipped)
+        core.append_audit(state, "ENTRY_FUNDING_EARLIER_ALERT_SUPERSEDED", {"epoch": block.epoch}, now_utc)
     sent.append(key)
     strategy["entry_funding_alerts_sent"] = sent[-20:]
 
@@ -345,7 +349,7 @@ def block_event_message(event: Mapping[str, Any]) -> str:
         [
             (
                 "💰 BTC 첫 매수 자금준비 "
-                f"{int(event['lead_business_days'])}영업일 전"
+                f"{int(event['lead_business_days'])}영업일 전(예상)"
             ),
             "",
             "현재 블록속도를 10분/블록으로 놓은 예상 일정입니다.",

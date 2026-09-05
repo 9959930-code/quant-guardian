@@ -1,0 +1,12 @@
+{
+  "name": "quant-guardian-watchdog",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-05",
+  "workers_dev": false,
+  "triggers": {"crons": ["7,22,37,52 * * * *"]},
+  "vars": {"ENABLED": "false", "ENABLE_RECOVERY": "false"},
+  "durable_objects": {"bindings": [
+    {"name": "WATCHDOG_STATE", "class_name": "WatchdogState"}
+  ]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["WatchdogState"]}]
+}

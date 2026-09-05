@@ -18,7 +18,7 @@ def deployment_aware_heartbeat_due(
     if operations.get("last_weekly_heartbeat_period") == current_period:
         return False
     event_name = os.getenv("GITHUB_EVENT_NAME", "")
-    if event_name in {"push", "workflow_dispatch"}:
+    if event_name in {"push", "workflow_dispatch"} and os.getenv("QG_TRIGGER_SOURCE") != "cloudflare_watchdog":
         return True
     return _ORIGINAL_DUE(operations, now_kst)
 

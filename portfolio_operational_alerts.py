@@ -12,10 +12,11 @@ import isa_leverage_core as isa_core
 import portfolio_telegram_bot as app
 
 
-SERVICE_VERSION = "portfolio-telegram-btc-isa-1.1"
+SERVICE_VERSION = "portfolio-telegram-btc-isa-1.2"
 OPERATIONS_SCHEMA_VERSION = 1
 WEEKLY_HEARTBEAT_TIME = time(9, 17)
-SCHEDULE_GAP_ALERT_AFTER = timedelta(minutes=90)
+SCHEDULE_GAP_ALERT_AFTER = timedelta(hours=3)
+SENSITIVE_GAP_ALERT_AFTER = timedelta(minutes=90)
 SCHEDULE_GAP_ALERT_COOLDOWN = timedelta(hours=12)
 
 _INSTALLED = False
@@ -23,7 +24,7 @@ _ORIGINAL_RUN_SERVICE = app.run_service
 
 
 def _parse_iso(value: Any) -> datetime | None:
-    if value in {None, ""}:
+    if value is None or value == "":
         return None
     try:
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
@@ -35,6 +36,8 @@ def _operations(state: dict[str, Any]) -> dict[str, Any]:
     operations = state.setdefault("operations", {})
     operations.setdefault("schema_version", OPERATIONS_SCHEMA_VERSION)
     operations.setdefault("last_scheduled_run_at_utc", None)
+    operations.setdefault("last_service_completed_at_utc", operations.get("last_scheduled_run_at_utc"))
+    operations.setdefault("last_gap_severity", "none")
     operations.setdefault("last_weekly_heartbeat_period", None)
     operations.setdefault("last_weekly_heartbeat_at_utc", None)
     operations.setdefault("last_gap_alert_at_utc", None)
@@ -181,12 +184,14 @@ def _build_weekly_heartbeat(
         pass
     btc_status = "정상" if btc_result.get("data_status") == "ok" else "확인 필요"
     isa_status = "정상" if isa_result.get("data_status") == "ok" else "확인 필요"
+    if isa_result.get("data_checked_this_run") is False:
+        isa_status = f"이번 실행 미조회 · 마지막 기록 {isa_status}"
     pending = str(btc_result.get("pending") or "대기 중인 작업 없음")
 
     lines = [
         "[Quant Guardian 주간 heartbeat]",
         f"- 기준: {now_kst:%Y-%m-%d %H:%M KST}",
-        "- BTC·ISA 자동화가 이번 실행까지 정상적으로 도달했습니다.",
+        "- 봇 실행 보고입니다. 예약 주기 보장이나 거래소 잔고 자동조회 결과는 아닙니다.",
         "",
         "[BTC]",
         f"- 데이터: {btc_status}",
@@ -221,28 +226,30 @@ def _build_weekly_heartbeat(
             tiger_price = data.get("last_tiger_price_krw")
             tiger_date = data.get("last_quote_date")
         try:
-            plan = isa_core.calculate_purchase_plan(
-                isa_core.INITIAL_INVESTMENT_KRW, float(tiger_price)
-            )
+            remaining = isa_core.remaining_initial_budget(isa_state)
+            fresh_date = datetime.fromisoformat(str(tiger_date)).date()
+            fresh = 0 <= (now_kst.date() - fresh_date).days <= 7
+            plan = isa_core.calculate_purchase_plan(remaining, float(tiger_price)) if fresh and remaining > 0 else None
         except (TypeError, ValueError, isa_core.IsaStrategyError):
             plan = None
         if plan is not None:
             lines.extend(
                 [
-                    f"- 최신 기준가격: {_krw(tiger_price)} · {tiger_date or '-'}",
+                    f"- 기준가격(종가): {_krw(tiger_price)} · {tiger_date or '-'}",
+                    f"- 기록된 매수원금 차감 후 잔여예산: {_krw(remaining)}",
                     f"- 초기 주문 검토수량: {plan.shares:,}주",
                     f"- 예상 주문금액: {_krw(plan.expected_order_krw)}",
                     f"- 예상 잔여현금: {_krw(plan.expected_remainder_krw)}",
                 ]
             )
         else:
-            lines.append("- 초기 주문수량: 시세 확인 후 ISA 상태 메뉴에서 재확인")
+            lines.append("- 추가 주문안 보류: 예산·시세·실제 체결 여부를 확인하고 먼저 잔고동기화해 주세요.")
         lines.extend(
             [
                 f"- 환율 Shadow: {_fx_text(fx, isa_state)}",
                 "",
                 "⚠️ ISA 초기매수가 아직 완료 처리되지 않았습니다.",
-                "직접 매수한 뒤 ‘🔄 ISA 잔고 동기화’에서 총수량·누적원금을 입력하고",
+                "이미 매수했다면 재매수하지 말고 ‘🔄 ISA 잔고 동기화’에 총수량·누적원금을 입력하고",
                 "‘✅ 초기매수 완료’를 선택해야 다음 달부터 월 50만원 알림이 시작됩니다.",
             ]
         )
@@ -267,72 +274,102 @@ def _build_weekly_heartbeat(
     return "\n".join(lines)
 
 
-def _build_gap_message(previous: datetime, now_utc: datetime) -> str:
-    return "\n".join(
-        [
-            "[Quant Guardian 자동화 지연 감지 · 복구]",
-            f"- 직전 예약 실행: {_format_kst(previous)}",
-            f"- 이번 예약 실행: {_format_kst(now_utc)}",
-            f"- 실행 간격: {_format_duration(now_utc - previous)}",
-            f"- 경고 기준: {_format_duration(SCHEDULE_GAP_ALERT_AFTER)}",
-            "",
-            "현재 실행에서는 BTC·ISA 상태 복원, 전략 점검과 상태 저장까지 다시 완료했습니다.",
-            "GitHub Actions가 멈춰 있는 동안에는 Telegram 알림을 보낼 수 없으므로",
-            "이 알림은 다음 실행이 재개된 뒤 전달되는 복구형 감지입니다.",
-            "자동주문은 없습니다.",
-        ]
-    )
+def sensitive_reasons(btc: Mapping[str, Any], isa: Mapping[str, Any], now: datetime) -> list[str]:
+    reasons: list[str] = []
+    tg, st = btc.get("telegram", {}), btc.get("strategy", {})
+    if any(tg.get(key) for key in ("pending_sync", "pending_operation", "conversation")):
+        reasons.append("주문 또는 잔고 입력 대기")
+    phase = st.get("phase")
+    if phase in {"ENTRY", "EXIT"}:
+        reasons.append("BTC 분할 주문 진행 중")
+    height = st.get("last_block_height")
+    if height is not None:
+        current = int(height) % hybrid_core.INTERVAL
+        targets = []
+        if phase == "WAITING_ENTRY":
+            targets = [hybrid_core.WATCH, hybrid_core.ENTRY]
+        elif phase == "HOLD" and st.get("cycle_epoch") is not None:
+            if int(height) // hybrid_core.INTERVAL > int(st["cycle_epoch"]):
+                targets = [hybrid_core.WARNING, *hybrid_core.EXITS]
+        if any(0 <= t - current <= 7 * 144 for t in targets) or (phase == "WAITING_ENTRY" and current >= hybrid_core.ENTRY):
+            reasons.append("BTC 임계구간 근접")
+    local = now.astimezone(isa_core.KST)
+    ist = isa.get("strategy", {})
+    period = local.strftime("%Y-%m")
+    if (local.weekday() < 5 and (local.hour, local.minute) >= (9, 17)
+        and ist.get("initial_completed")
+        and period >= str(ist.get("monthly_start_period") or period)
+        and ist.get("last_monthly_plan_period") != period):
+        reasons.append("ISA 이번 달 매수안 미발송")
+    return reasons
+
+
+def _build_gap_message(previous: datetime, now: datetime, *, reasons: list[str], severity: str) -> str:
+    threshold = SENSITIVE_GAP_ALERT_AFTER if reasons else SCHEDULE_GAP_ALERT_AFTER
+    return "\n".join([
+        f"[Quant Guardian 실행 공백 감지 · 재개 · {severity}]",
+        f"- 직전 서비스 완료: {_format_kst(previous)}",
+        f"- 이번 서비스 실행: {_format_kst(now)}",
+        f"- 실행 간격: {_format_duration(now - previous)}",
+        f"- 경고 기준: {_format_duration(threshold)}",
+        f"- 민감 조건: {', '.join(reasons) if reasons else '없음'}",
+        "",
+        "이 BTC·ISA 워크플로의 실행 공백을 확인했습니다. GitHub 전체 장애 여부는 확인되지 않았습니다.",
+        "현재 실행이 전략 점검 단계까지 재개됐습니다. 최종 상태 백업 결과는 워크플로 종료 후 확인됩니다.",
+        "외부 감시기가 가동되기 전에는 실행 중단 중 경고할 수 없으며, 이 메시지는 재개 후 보고입니다.",
+        "자동주문 없음 · 오래된 주문 금액을 그대로 사용하지 마세요.",
+    ])
 
 
 def process_operational_alerts(
-    *,
-    btc_state_path: Path,
-    isa_state_path: Path,
-    btc_result: Mapping[str, Any],
-    isa_result: Mapping[str, Any],
-    now_utc: datetime | None = None,
-    event_name: str | None = None,
-    client: btc_bot.TelegramClient | Any | None = None,
+    *, btc_state_path: Path, isa_state_path: Path,
+    btc_result: Mapping[str, Any], isa_result: Mapping[str, Any],
+    now_utc: datetime | None = None, event_name: str | None = None,
+    client: Any | None = None,
     quote_fetcher: Callable[[], Mapping[str, isa_core.QuoteSnapshot]] | None = None,
     fx_fetcher: Callable[[], isa_core.FxSnapshot] | None = None,
 ) -> dict[str, Any]:
     now = (now_utc or btc_core.utc_now()).astimezone(UTC)
     event = str(event_name if event_name is not None else os.getenv("GITHUB_EVENT_NAME", ""))
-    btc_state, _ = btc_core.load_state(btc_state_path, now_utc=now)
-    isa_state, _ = isa_core.load_state(isa_state_path, now_utc=now)
-    operations = _operations(btc_state)
-    messages: list[str] = []
-    gap_minutes: int | None = None
-    gap_alert_sent = False
-    heartbeat_sent = False
+    btc, _ = btc_core.load_state(btc_state_path, now_utc=now)
+    isa, _ = isa_core.load_state(isa_state_path, now_utc=now)
+    ops = _operations(btc)
+    count, gap_minutes = 0, None
+    gap_sent = heartbeat_sent = False
+    outbound = client
 
-    if event == "schedule":
-        previous = _parse_iso(operations.get("last_scheduled_run_at_utc"))
-        if previous is not None and now > previous:
-            gap = now - previous
-            gap_minutes = int(gap.total_seconds() // 60)
-            last_alert = _parse_iso(operations.get("last_gap_alert_at_utc"))
-            cooldown_elapsed = (
-                last_alert is None or now - last_alert >= SCHEDULE_GAP_ALERT_COOLDOWN
-            )
-            if gap >= SCHEDULE_GAP_ALERT_AFTER and cooldown_elapsed:
-                messages.append(_build_gap_message(previous, now))
-                operations["last_gap_alert_at_utc"] = btc_core.iso_utc(now)
-                gap_alert_sent = True
-                btc_core.append_audit(
-                    btc_state,
-                    "PORTFOLIO_SCHEDULE_GAP_RECOVERED",
-                    {"gap_minutes": gap_minutes},
-                    now,
-                )
-        operations["last_scheduled_run_at_utc"] = btc_core.iso_utc(now)
+    def send(text: str) -> None:
+        nonlocal outbound, count
+        if outbound is None:
+            outbound = btc_bot.TelegramClient(btc_core.env_bot_token(), btc_core.env_chat_id())
+        outbound.send_message(text, menu=True)
+        count += 1
 
-    now_kst = now.astimezone(btc_core.KST)
-    if event in {"schedule", "push", "workflow_dispatch"} and _weekly_heartbeat_due(
-        operations, now_kst
-    ):
-        quotes: Mapping[str, isa_core.QuoteSnapshot] | None = None
-        fx: isa_core.FxSnapshot | None = None
+    def persist() -> None:
+        btc["updated_at_utc"] = btc_core.iso_utc(now)
+        btc_core.save_state(btc_state_path, btc)
+
+    operational_event = event in {"schedule", "push", "workflow_dispatch"}
+    previous = _parse_iso(ops.get("last_service_completed_at_utc"))
+    reasons = sensitive_reasons(btc, isa, now)
+    severity = "none"
+    if operational_event and previous is not None and now > previous:
+        gap = now - previous
+        gap_minutes = int(gap.total_seconds() // 60)
+        threshold = SENSITIVE_GAP_ALERT_AFTER if reasons else SCHEDULE_GAP_ALERT_AFTER
+        severity = "중요" if gap >= timedelta(hours=12) or (reasons and gap >= timedelta(hours=3)) else "주의"
+        last_alert = _parse_iso(ops.get("last_gap_alert_at_utc"))
+        cooldown = last_alert is None or now - last_alert >= SCHEDULE_GAP_ALERT_COOLDOWN
+        escalate = severity == "중요" and ops.get("last_gap_severity") != "중요"
+        if gap >= threshold and (cooldown or escalate):
+            send(_build_gap_message(previous, now, reasons=reasons, severity=severity))
+            ops["last_gap_alert_at_utc"] = btc_core.iso_utc(now)
+            ops["last_gap_severity"] = severity
+            gap_sent = True
+            btc_core.append_audit(btc, "PORTFOLIO_EXECUTION_GAP_REPORTED", {"minutes": gap_minutes, "reasons": reasons}, now)
+            persist()  # Save delivery markers only after a successful API response.
+
+    if operational_event and _weekly_heartbeat_due(ops, now.astimezone(btc_core.KST)):
         try:
             quotes = (quote_fetcher or isa_core.fetch_quotes)()
         except isa_core.IsaStrategyError:
@@ -341,52 +378,34 @@ def process_operational_alerts(
             fx = (fx_fetcher or isa_core.fetch_fx_snapshot)()
         except isa_core.IsaStrategyError:
             fx = None
-        messages.append(
-            _build_weekly_heartbeat(
-                btc_state=btc_state,
-                isa_state=isa_state,
-                btc_result=btc_result,
-                isa_result=isa_result,
-                now_utc=now,
-                quotes=quotes,
-                fx=fx,
-            )
-        )
-        operations["last_weekly_heartbeat_period"] = _week_key(now_kst)
-        operations["last_weekly_heartbeat_at_utc"] = btc_core.iso_utc(now)
+        send(_build_weekly_heartbeat(btc_state=btc, isa_state=isa,
+            btc_result=btc_result, isa_result=isa_result, now_utc=now, quotes=quotes, fx=fx))
+        ops["last_weekly_heartbeat_period"] = _week_key(now.astimezone(btc_core.KST))
+        ops["last_weekly_heartbeat_at_utc"] = btc_core.iso_utc(now)
         heartbeat_sent = True
-        btc_core.append_audit(
-            btc_state,
-            "PORTFOLIO_WEEKLY_HEARTBEAT_SENT",
-            {
-                "period": _week_key(now_kst),
-                "isa_initial_completed": bool(
-                    isa_state["strategy"].get("initial_completed")
-                ),
-            },
-            now,
-        )
+        btc_core.append_audit(btc, "PORTFOLIO_WEEKLY_HEARTBEAT_SENT", {"period": ops["last_weekly_heartbeat_period"]}, now)
+        persist()
 
-    if messages:
-        outbound = client or btc_bot.TelegramClient(
-            btc_core.env_bot_token(), btc_core.env_chat_id()
-        )
-        for message in messages:
-            outbound.send_message(message, menu=True)
-
-    btc_state["updated_at_utc"] = btc_core.iso_utc(now)
-    btc_core.save_state(btc_state_path, btc_state)
+    if operational_event:
+        ops["last_service_completed_at_utc"] = btc_core.iso_utc(now)
+        ops["last_execution_event"] = event
+        ops["last_trigger_source"] = os.getenv("QG_TRIGGER_SOURCE", event)
+    if event == "schedule":
+        ops["last_scheduled_run_at_utc"] = btc_core.iso_utc(now)
+    data_ok = btc_result.get("data_status") == "ok" and (
+        isa_result.get("data_status") == "ok"
+    )
+    ops["last_data_checks_ok"] = data_ok
+    persist()
     return {
         "operations_schema_version": OPERATIONS_SCHEMA_VERSION,
-        "event_name": event,
-        "message_count": len(messages),
-        "heartbeat_sent": heartbeat_sent,
-        "gap_alert_sent": gap_alert_sent,
-        "schedule_gap_minutes": gap_minutes,
-        "last_scheduled_run_at_utc": operations.get("last_scheduled_run_at_utc"),
-        "last_weekly_heartbeat_period": operations.get(
-            "last_weekly_heartbeat_period"
-        ),
+        "event_name": event, "message_count": count,
+        "heartbeat_sent": heartbeat_sent, "gap_alert_sent": gap_sent,
+        "schedule_gap_minutes": gap_minutes, "sensitive_reasons": reasons,
+        "data_checks_ok": data_ok,
+        "last_service_completed_at_utc": ops.get("last_service_completed_at_utc"),
+        "last_scheduled_run_at_utc": ops.get("last_scheduled_run_at_utc"),
+        "last_weekly_heartbeat_period": ops.get("last_weekly_heartbeat_period"),
     }
 
 

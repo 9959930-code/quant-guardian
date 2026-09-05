@@ -5,7 +5,7 @@ import json
 import math
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -574,11 +574,24 @@ def _isa_outbound_due(
     if not bool(state["strategy"].get("initial_plan_sent")):
         return True
     now_kst = now_utc.astimezone(isa_core.KST)
-    return (
-        now_kst.weekday() < 5
-        and now_kst.hour == 9
-        and 10 <= now_kst.minute < 30
+    if now_kst.weekday() >= 5 or (now_kst.hour, now_kst.minute) < (9, 17):
+        return False
+    data = state["data"]
+    try:
+        checked = datetime.fromisoformat(str(data.get("last_check_at_utc", "")).replace("Z", "+00:00"))
+        checked = checked.astimezone(isa_core.KST)
+    except (TypeError, ValueError):
+        checked = None
+    if checked is None or checked.date() != now_kst.date():
+        return True
+    strategy = state["strategy"]
+    period = now_kst.strftime("%Y-%m")
+    pending_month = (
+        bool(strategy.get("initial_completed"))
+        and period >= str(strategy.get("monthly_start_period") or period)
+        and strategy.get("last_monthly_plan_period") != period
     )
+    return (pending_month or data.get("status") != "ok") and now_kst - checked >= timedelta(hours=1)
 
 
 def run_service(
@@ -638,6 +651,7 @@ def run_service(
                 isa_state["account"].get("tiger_invested_krw", 0)
             ),
             "data_status": isa_state["data"].get("status"),
+            "data_checked_this_run": False,
             "message_count": 0,
             "auto_order": False,
         }

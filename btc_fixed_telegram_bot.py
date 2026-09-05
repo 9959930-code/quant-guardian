@@ -979,6 +979,8 @@ def run_service(
                 "[다음 단계 보류]\n이전 주문 후 잔고 동기화가 끝나지 않아 이번 주 다음 단계를 진행하지 않습니다.",
                 inline_keyboard=order_keyboard(),
             )
+        elif action and action["type"] == "CHECK_DEFERRED":
+            client.send_message(action["message"], menu=True)
         elif action and action["type"] == "ORDER":
             instruction: core.OrderInstruction = action["instruction"]
             if instruction.side == "NONE":
