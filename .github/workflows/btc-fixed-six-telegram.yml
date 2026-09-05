@@ -6,6 +6,17 @@ on:
     - cron: "2,17,32,47 * * * *"
   workflow_dispatch:
     inputs:
+      service_only:
+        description: "Lightweight recovery run (no dependency install or state reset)"
+        required: false
+        default: false
+        type: boolean
+      trigger_source:
+        description: "Invocation source"
+        required: false
+        default: manual
+        type: choice
+        options: [manual, cloudflare_watchdog]
       force_status:
         description: "Send a BTC status report on this run"
         required: false
@@ -37,6 +48,9 @@ on:
       - "btc_clock_hybrid_runtime.py"
       - "btc_clock_hybrid_portfolio_runner.py"
       - "portfolio_operational_alerts.py"
+      - "portfolio_state_guard.py"
+      - "portfolio_operational_delivery.py"
+      - "tests/test_zzzzzz_portfolio_reliability.py"
       - "isa_leverage_advisory.py"
       - "isa_leverage_core.py"
       - "isa_leverage_messages.py"
@@ -59,6 +73,9 @@ on:
       - "btc_clock_hybrid_runtime.py"
       - "btc_clock_hybrid_portfolio_runner.py"
       - "portfolio_operational_alerts.py"
+      - "portfolio_state_guard.py"
+      - "portfolio_operational_delivery.py"
+      - "tests/test_zzzzzz_portfolio_reliability.py"
       - "isa_leverage_advisory.py"
       - "isa_leverage_core.py"
       - "isa_leverage_messages.py"
@@ -76,28 +93,33 @@ on:
 
 permissions:
   contents: read
-  statuses: write
 
 concurrency:
-  group: quant-guardian-telegram-state
+  group: ${{ github.event_name == 'pull_request' && format('portfolio-pr-{0}', github.event.number) || 'quant-guardian-telegram-state' }}
   cancel-in-progress: false
 
 jobs:
   service:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    env:
+      QG_SERVICE_ONLY: ${{ inputs.service_only }}
+      QG_TRIGGER_SOURCE: ${{ inputs.trigger_source || github.event_name }}
+      MANUAL_RESET_BTC_STATE: ${{ inputs.reset_state }}
+      MANUAL_RESET_ISA_STATE: ${{ inputs.reset_isa_state }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Python for scheduled service
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.service_only)
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Set up Python with pip cache
-        if: github.event_name != 'schedule'
+        if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.service_only)
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -105,7 +127,7 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: Install full test dependencies
-        if: github.event_name != 'schedule'
+        if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.service_only)
         run: python -m pip install -r requirements.txt
 
       - name: Compile portfolio Telegram modules
@@ -114,16 +136,17 @@ jobs:
           btc_fixed_advisory.py btc_fixed_telegram_bot.py
           btc_clock_hybrid_core.py btc_clock_hybrid_telegram.py
           btc_clock_hybrid_runtime.py btc_clock_hybrid_portfolio_runner.py
-          portfolio_operational_alerts.py
+          portfolio_operational_alerts.py portfolio_operational_delivery.py portfolio_state_guard.py
           isa_leverage_core.py isa_leverage_messages.py isa_leverage_advisory.py
           portfolio_telegram_bot.py tests/test_zz_btc_clock_hybrid_runtime.py
           tests/test_zzzz_portfolio_operational_alerts.py
 
       - name: Run complete unit and regression tests
-        if: github.event_name != 'schedule'
+        if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.service_only)
         run: python -m unittest discover -s tests -v
 
       - name: Restore persistent BTC state
+        id: restore_btc
         if: github.event_name != 'pull_request'
         uses: actions/cache/restore@v4
         with:
@@ -133,6 +156,7 @@ jobs:
             btc-fixed-six-state-
 
       - name: Restore persistent ISA state
+        id: restore_isa
         if: github.event_name != 'pull_request'
         uses: actions/cache/restore@v4
         with:
@@ -141,7 +165,16 @@ jobs:
           restore-keys: |
             isa-tiger-leverage-state-
 
+      - name: Refuse missing or mismatched state caches
+        id: preflight
+        if: github.event_name != 'pull_request'
+        env:
+          BTC_CACHE_KEY: ${{ steps.restore_btc.outputs.cache-matched-key }}
+          ISA_CACHE_KEY: ${{ steps.restore_isa.outputs.cache-matched-key }}
+        run: python portfolio_state_guard.py preflight
+
       - name: Run unified BTC and ISA Telegram service
+        id: portfolio
         if: github.event_name != 'pull_request'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -151,7 +184,7 @@ jobs:
           MANUAL_RESET_BTC_STATE: ${{ inputs.reset_state }}
           MANUAL_RESET_ISA_STATE: ${{ inputs.reset_isa_state }}
         run: |
-          mkdir -p data/state
+          mkdir -p data/state output
           ARGS=(
             --btc-state-file data/state/btc_fixed_state.json
             --isa-state-file data/state/isa_leverage_state.json
@@ -168,107 +201,50 @@ jobs:
           if [ "$MANUAL_RESET_ISA_STATE" = "true" ]; then
             ARGS+=(--reset-isa-state)
           fi
-          python btc_clock_hybrid_portfolio_runner.py "${ARGS[@]}"
+          python btc_clock_hybrid_portfolio_runner.py "${ARGS[@]}" | tee output/portfolio-service-result.json
 
       - name: Validate persistent portfolio state safety
-        if: github.event_name != 'pull_request'
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          btc = json.loads(
-              Path("data/state/btc_fixed_state.json").read_text(encoding="utf-8")
-          )
-          assert btc["schema_version"] == 5
-          assert btc["strategy_version"] == "btc-fixed-six-clock-hybrid-1.1"
-          assert btc["account"]["cash_krw"] >= 0
-          assert btc["account"]["btc_quantity"] >= 0
-          assert btc["account"]["reserve_next_krw"] >= 0
-          assert btc["account"]["reserve_next_krw"] <= btc["account"]["cash_krw"] + 1
-          assert btc["strategy"]["phase"] in {"WAITING_ENTRY", "ENTRY", "HOLD", "EXIT"}
-          assert btc["telegram"].get("unified_menu_version", 0) >= 2
-          assert "btc-fixed-six-v4-to-clock-hybrid-v5" in btc["migrations"]
-          for key in (
-              "entry_watch_alerted_epochs",
-              "entry_alerted_epochs",
-              "halving_alerted_epochs",
-              "exit_warning_alerted_epochs",
-          ):
-              assert isinstance(btc["strategy"][key], list)
-          pending = btc["telegram"].get("pending_sync")
-          if pending:
-              assert pending["policy_version"] == "btc-fixed-six-clock-hybrid-1.1"
-              assert "age_anchor_at_utc" in pending
-              assert isinstance(pending["plan_expired"], bool)
-
-          operations = btc.get("operations") or {}
-          assert operations["schema_version"] == 1
-          assert "last_scheduled_run_at_utc" in operations
-          assert "last_weekly_heartbeat_period" in operations
-          assert "last_gap_alert_at_utc" in operations
-
-          isa = json.loads(
-              Path("data/state/isa_leverage_state.json").read_text(encoding="utf-8")
-          )
-          assert isa["schema_version"] == 1
-          assert isa["strategy_version"] == "isa-tiger-leverage-telegram-1.0"
-          assert isa["strategy"]["auto_order"] is False
-          assert isa["strategy"]["initial_investment_krw"] == 10_000_000
-          assert isa["strategy"]["monthly_contribution_krw"] == 500_000
-          assert isa["account"]["tiger_quantity"] >= 0
-          assert isa["account"]["tiger_invested_krw"] >= 0
-          holdings = {
-              item["code"]: item["quantity"]
-              for item in isa["account"]["existing_holdings"]
-          }
-          assert holdings == {"442580": 7.0, "0048J0": 145.0, "379810": 70.0}
-
-          print(
-              json.dumps(
-                  {
-                      "btc_strategy_version": btc["strategy_version"],
-                      "btc_schema_version": btc["schema_version"],
-                      "btc_phase": btc["strategy"]["phase"],
-                      "btc_quantity": btc["account"]["btc_quantity"],
-                      "btc_cash_krw": btc["account"]["cash_krw"],
-                      "btc_pending": None if not pending else {
-                          "kind": pending["kind"],
-                          "step": pending["step"],
-                          "expired": pending["plan_expired"],
-                      },
-                      "isa_initial_completed": isa["strategy"]["initial_completed"],
-                      "isa_tiger_quantity": isa["account"]["tiger_quantity"],
-                      "isa_tiger_invested_krw": isa["account"]["tiger_invested_krw"],
-                      "menu_version": btc["telegram"]["unified_menu_version"],
-                      "operations": operations,
-                      "auto_order": False,
-                  },
-                  ensure_ascii=False,
-                  indent=2,
-              )
-          )
-          PY
+        id: state_check
+        if: always() && github.event_name != 'pull_request' && steps.preflight.outcome == 'success'
+        run: python portfolio_state_guard.py finalize
 
       - name: Save persistent BTC state
-        if: github.event_name != 'pull_request'
+        if: always() && github.event_name != 'pull_request' && steps.state_check.outcome == 'success'
         uses: actions/cache/save@v4
         with:
           path: data/state/btc_fixed_state.json
           key: btc-fixed-six-state-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Save persistent ISA state
-        if: github.event_name != 'pull_request'
+        if: always() && github.event_name != 'pull_request' && steps.state_check.outcome == 'success'
         uses: actions/cache/save@v4
         with:
           path: data/state/isa_leverage_state.json
           key: isa-tiger-leverage-state-${{ github.run_id }}-${{ github.run_attempt }}
 
+      - name: Check data health after state persistence
+        if: github.event_name != 'pull_request'
+        run: |
+          python - <<'PYCODE'
+          import json
+          from pathlib import Path
+          result = json.loads(Path("output/portfolio-service-result.json").read_text())
+          if not result["operational"]["data_checks_ok"]:
+              raise SystemExit("Required market data checks failed; preserved state, no success heartbeat")
+          PYCODE
+
+  publish-health:
+    needs: service
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      statuses: write
+    steps:
       - name: Publish portfolio live health status
-        if: always() && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_STATUS: ${{ job.status }}
+          JOB_STATUS: ${{ needs.service.result }}
           REPOSITORY: ${{ github.repository }}
           COMMIT_SHA: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
