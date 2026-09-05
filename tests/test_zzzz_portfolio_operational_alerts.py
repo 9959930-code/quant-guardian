@@ -198,7 +198,7 @@ class PortfolioOperationalAlertTests(unittest.TestCase):
             btc_core.save_state(btc_path, btc)
             client = FakeClient()
 
-            recovered = tuesday + timedelta(hours=2)
+            recovered = tuesday + timedelta(hours=4)
             first = operational.process_operational_alerts(
                 btc_state_path=btc_path,
                 isa_state_path=isa_path,
@@ -209,9 +209,9 @@ class PortfolioOperationalAlertTests(unittest.TestCase):
                 client=client,
             )
             self.assertTrue(first["gap_alert_sent"])
-            self.assertEqual(first["schedule_gap_minutes"], 120)
-            self.assertIn("자동화 지연 감지 · 복구", client.messages[0][0])
-            self.assertIn("2시간 0분", client.messages[0][0])
+            self.assertEqual(first["schedule_gap_minutes"], 240)
+            self.assertIn("실행 공백 감지 · 재개", client.messages[0][0])
+            self.assertIn("4시간 0분", client.messages[0][0])
 
             second = operational.process_operational_alerts(
                 btc_state_path=btc_path,

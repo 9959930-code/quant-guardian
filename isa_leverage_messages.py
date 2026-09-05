@@ -10,6 +10,7 @@ from isa_leverage_core import (
     FxSnapshot,
     QuoteSnapshot,
     calculate_purchase_plan,
+    remaining_initial_budget,
     krw,
     number,
     pct,
@@ -30,13 +31,17 @@ def initial_plan_message(
     fx: FxSnapshot | None,
 ) -> str:
     tiger = quotes[TIGER_CODE]
-    plan = calculate_purchase_plan(INITIAL_INVESTMENT_KRW, tiger.close)
+    budget = remaining_initial_budget(state)
+    if budget <= 0:
+        return "[ISA 초기매수 확인]\n초기예산의 누적 매수원금이 모두 기록되어 있습니다. 추가 주문 대신 초기매수 완료 상태를 확인하세요."
+    plan = calculate_purchase_plan(budget, tiger.close)
     portfolio = portfolio_values(state, quotes, proposed_tiger_budget_krw=plan.expected_order_krw)
     lines = [
         "[Quant Guardian ISA · 초기매수]",
         "",
         f"- 상품: {TIGER_NAME} ({TIGER_CODE})",
         f"- 초기 신규자금: {krw(INITIAL_INVESTMENT_KRW)}",
+        f"- 기존 투입원금 차감 후 잔여예산: {krw(budget)}",
         f"- 기준가격: {krw(tiger.close)} · {tiger.date}",
         f"- 주문 검토수량: {plan.shares:,}주",
         f"- 예상 주문금액: {krw(plan.expected_order_krw)}",

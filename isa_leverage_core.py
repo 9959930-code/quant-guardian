@@ -402,6 +402,8 @@ def is_monthly_plan_due(
     strategy = state["strategy"]
     if not bool(strategy.get("initial_completed")):
         return False
+    if (now_kst.hour, now_kst.minute) < (9, 17):
+        return False
     period = now_kst.strftime("%Y-%m")
     start_period = strategy.get("monthly_start_period")
     if start_period and period < str(start_period):
@@ -409,7 +411,23 @@ def is_monthly_plan_due(
     if strategy.get("last_monthly_plan_period") == period:
         return False
     try:
-        quote_period = datetime.fromisoformat(latest_quote_date).strftime("%Y-%m")
+        quote_day = datetime.fromisoformat(latest_quote_date).date()
+        if not 0 <= (now_kst.date() - quote_day).days <= 7:
+            return False
+        quote_period = quote_day.strftime("%Y-%m")
     except ValueError:
         return False
     return quote_period == period and now_kst.weekday() < 5
+
+
+def remaining_initial_budget(state: Mapping[str, Any]) -> float:
+    """Never suggest the entire initial budget again after a partial fill."""
+    account = state["account"]
+    invested = float(account.get("tiger_invested_krw", 0))
+    quantity = float(account.get("tiger_quantity", 0))
+    target = float(state["strategy"].get("initial_investment_krw", INITIAL_INVESTMENT_KRW))
+    if not all(math.isfinite(x) and x >= 0 for x in (invested, quantity, target)):
+        raise IsaStrategyError("ISA 수량·누적원금을 먼저 확인해 주세요.")
+    if quantity > 0 and invested == 0:
+        raise IsaStrategyError("TIGER 보유수량이 있지만 매수원금이 0입니다. 잔고동기화가 필요합니다.")
+    return max(0.0, target - invested)

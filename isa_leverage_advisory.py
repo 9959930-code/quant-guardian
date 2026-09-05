@@ -112,6 +112,8 @@ def run_service(
         state["data"]["status"] = "error"
         state["data"]["last_error"] = data_error
 
+    state["data"]["last_check_at_utc"] = now.isoformat()
+
     if quotes is not None:
         strategy = state["strategy"]
         if initialized_new or resend_initial or not bool(strategy.get("initial_plan_sent")):
@@ -125,7 +127,10 @@ def run_service(
             state, now_kst=now_kst, latest_quote_date=quotes[TIGER_CODE].date
         ):
             period = now_kst.strftime("%Y-%m")
-            messages.append(monthly_plan_message(state, quotes, fx, period))
+            message = monthly_plan_message(state, quotes, fx, period)
+            message += "\n\n[해당 월 미발송분 점검]\n현재 시세 기준이며 과거 가격으로 소급 주문하지 않습니다.\n알림 발송은 매수 완료를 의미하지 않습니다. 이전 달 적립금을 자동 합산하지 않습니다."
+            messages.append(message)
+            strategy["last_monthly_plan_generated_at_utc"] = now.isoformat()
             strategy["last_monthly_plan_period"] = period
             append_audit(state, "MONTHLY_PLAN_SENT", {"period": period}, now)
         if fx is not None:
@@ -167,6 +172,7 @@ def run_service(
         "tiger_quantity": float(state["account"].get("tiger_quantity", 0)),
         "tiger_invested_krw": float(state["account"].get("tiger_invested_krw", 0)),
         "data_status": state["data"].get("status"),
+        "data_checked_this_run": True,
         "last_quote_date": state["data"].get("last_quote_date"),
         "fx_zone": state["strategy"].get("last_fx_zone"),
         "message_count": len(messages),
