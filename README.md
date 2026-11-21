@@ -1,12 +1,16 @@
 # Quant Guardian
 
-미국 ETF 연구 대시보드와 BTC·ISA 수동매매 Telegram 보조도구를 함께 관리하는 저장소입니다. 자동주문과 출금 기능은 없습니다.
+미국 ETF 연구 대시보드와 BTC·ISA 전략의 과거 Telegram 실행 기록을 보존하는 저장소입니다. 자동주문과 출금 기능은 없습니다.
+
+> **2026-11-22 운영 변경:** Telegram 그룹을 사용자가 삭제했고, BTC 알림의 주 운영 채널을 ChatGPT Scheduled로 전환했습니다. 새로운 정책은 **5회 누적 목표비중 매수(20/40/60/80/100%) + 다음 epoch 35% 경고·37% 전량 매도 검토**입니다. [결정 및 안전 운영 기록](docs/btc/GPT_PRIMARY_POLICY_2026-11-22.md)과 독립 계산 모듈 `btc_gpt_primary_policy.py`를 참고하세요. 기존 Telegram 운영 workflow는 실행·예약이 제거된 수동 no-op으로 변경되었습니다. 기존 `btc_clock_hybrid_*` 및 `btc_fixed_*` 코드는 *이전 3+3회 규칙의 역사적 구현*이며 활성 거래 신호 엔진이 아닙니다. ChatGPT 작업과 GitHub 원장 사이의 자동 동기화는 구현되지 않았습니다.
 
 웹 주소: https://9959930-code.github.io/quant-guardian/
 
 ## 현재 운영 범위
 
-### 1. BTC 고정 6회 clock-hybrid
+### 1. BTC GPT-primary (현재 정책) / 구 고정 6회 clock-hybrid (참고용)
+
+아래는 **2026-11-22 이전 Telegram 방식의 역사적 설정**이며 현재 매매 지침이 아닙니다.
 
 ```text
 전략 버전: btc-fixed-six-clock-hybrid-1.1
@@ -41,13 +45,13 @@
 - 자동주문 없음
 ```
 
-Telegram에서 BTC와 ISA 상태·잔고동기화를 구분합니다.
+과거에는 Telegram에서 BTC와 ISA 상태·잔고동기화를 구분했습니다. 현재 텔레그램 통합 서비스는 비활성화되었고, ISA까지 ChatGPT로 이전된 것은 아닙니다.
 
 ### 3. ETF 연구 웹사이트
 
 기존 미국 ETF 점수·백테스트 웹사이트는 계속 갱신하지만, 이전 XLK·SPYM·SGOV 주식 Telegram은 중단했습니다. 직투 TQQQ는 별도 주문알림 없이 사용자가 장기보유합니다.
 
-## Telegram 메뉴
+## 과거 Telegram 메뉴 (비활성)
 
 ```text
 BTC 상태              ISA 상태
@@ -63,7 +67,7 @@ TELEGRAM_BOT_TOKEN
 TELEGRAM_CHAT_ID
 ```
 
-운영 workflow는 `.github/workflows/btc-fixed-six-telegram.yml`이며 매시 `02·17·32·47분`에 상태를 확인합니다. 실제 주문은 사용자가 거래소·증권사에서 직접 실행합니다.
+과거 운영 workflow는 `.github/workflows/btc-fixed-six-telegram.yml`이었으며, 2026-11-22에 자동 스케줄과 Telegram 전송을 제거했습니다. 현재 BTC 알림은 ChatGPT Scheduled 작업(매일 09:17 KST)을 사용합니다. 실제 주문은 사용자가 거래소에서 직접 실행하며, GitHub에 BTC 개인 계좌 잔고를 기록하지 않습니다.
 
 ## 주요 실행 파일
 
@@ -122,7 +126,7 @@ ETF 웹:
 python launch_dashboard.py --refresh --no-open
 ```
 
-BTC·ISA 통합 Telegram은 GitHub Actions 운영을 기본으로 하며, 로컬에서 실행하려면 Telegram 시크릿 환경변수와 상태파일 경로가 필요합니다.
+아래 실행 명령은 **역사적 Telegram 서비스 로컬 실행 예시**이며 현재 운영용이 아닙니다. 기존 Telegram 시크릿을 재사용하거나 실거래 상태를 무단으로 초기화하지 마세요.
 
 ```powershell
 python btc_clock_hybrid_portfolio_runner.py
